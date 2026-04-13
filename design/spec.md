@@ -856,10 +856,10 @@ Tech: vanilla HTML + `fetch()` calls to the REST API. No React/Vue — keep it s
 **What you learn:** Go's `//go:embed` directive, `embed.FS`, serving embedded static files with `http.FileServer` — the whole frontend ships inside the compiled binary, no separate file server needed.
 
 **Files added:** `static/index.html`
-**Files modified:** `main.go`
+**Files modified:** `main.go`, `handlers/middleware.go`, `deploy/deploy.sh`
 
-```go
-// static/index.html — minimal shell, just proves the route works
+```html
+<!-- static/index.html — minimal shell, just proves the route works -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -896,9 +896,41 @@ func main() {
 }
 ```
 
+`handlers/middleware.go` — only `/machines` routes require an API key; the frontend and `/health` are public:
+
+```go
+import (
+    "net/http"
+    "strings"
+)
+
+func RequireAPIKey(apiKey string, next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        // Public routes — no API key required
+        if r.URL.Path == "/health" || !strings.HasPrefix(r.URL.Path, "/machines") {
+            next.ServeHTTP(w, r)
+            return
+        }
+        key := r.Header.Get("X-API-Key")
+        if key == "" || key != apiKey {
+            writeError(w, http.StatusUnauthorized, "missing or invalid API key")
+            return
+        }
+        next.ServeHTTP(w, r)
+    })
+}
+```
+
+`deploy/deploy.sh` — use `--build` to force `podman-compose` to rebuild the image from source on every deploy:
+
+```bash
+podman-compose down || true && podman-compose up -d --build
+```
+
 ```bash
 go run main.go
-open http://localhost:8080   # should show the html page
+open http://localhost:8080        # shows the page, no API key needed
+curl localhost:8080/machines      # 401 — still protected
 ```
 
 #### Relevant Docs
@@ -912,6 +944,14 @@ open http://localhost:8080   # should show the html page
 **`pattern static: no matching files found` at build time**
 
 The `//go:embed static` directive requires the `static/` directory to exist and contain at least one file at compile time. Create `static/index.html` before running `go build` or `go run`.
+
+**Deployed container serves stale binary after `make deploy`**
+
+_Symptom:_ Source files are correct on doylestonex but the running container behaves as if built from old code.
+
+_Cause:_ `podman-compose up -d` without `--build` reuses the cached image (`tools-onoffapi_onoffapi:latest`) from the previous build, even if source files have changed on disk.
+
+_Fix:_ Always pass `--build` to force a rebuild: `podman-compose up -d --build`. This is already set in `deploy/deploy.sh`.
 
 ---
 

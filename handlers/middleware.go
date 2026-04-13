@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 )
 
 // RequireAPIKey is middleware that checks every request (except /health) carries
@@ -11,8 +12,10 @@ import (
 // In Go, middleware wraps an http.Handler and returns a new http.Handler.
 func RequireAPIKey(apiKey string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// /health is public — skip auth
-		if r.URL.Path == "/health" {
+		// Public routes — no API key required
+		// /health: readiness probe
+		// everything else non-/machines: static frontend assets
+		if r.URL.Path == "/health" || !strings.HasPrefix(r.URL.Path, "/machines") {
 			next.ServeHTTP(w, r)
 			return
 		}

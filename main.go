@@ -1,6 +1,8 @@
 package main
 
 import (
+	"embed"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -8,6 +10,9 @@ import (
 	"github.com/jonwhittlestone/tools-onoffapi/handlers"
 	"github.com/jonwhittlestone/tools-onoffapi/models"
 )
+
+//go:embed static
+var staticFiles embed.FS
 
 func main() {
 
@@ -21,6 +26,12 @@ func main() {
 
 	machineHandler := handlers.NewMachineHandler(store)
 	machineHandler.RegisterRoutes(mux)
+
+	staticFS, err := fs.Sub(staticFiles, "static")
+	if err != nil {
+		log.Fatal(err)
+	}
+	mux.Handle("GET /", http.FileServer(http.FS(staticFS)))
 
 	apiKey := os.Getenv("API_KEY")
 	if apiKey == "" {

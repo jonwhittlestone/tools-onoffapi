@@ -837,13 +837,194 @@ https://howapped.zapto.org/onoffapi/health
 
 ---
 
-## Feature 2 — Simple Frontend (next)
+## Feature 2 — Simple Frontend
 
 A minimal HTML/JS single-page app served by the Go API itself (no separate server needed). Shows a list of registered machines with Wake / Shutdown buttons.
 
 Served at: `GET /` → serves `static/index.html`
 
-Tech: vanilla HTML + fetch() calls to the REST API. No React/Vue — keep it simple and deployable as static files embedded in the Go binary.
+Tech: vanilla HTML + `fetch()` calls to the REST API. No React/Vue — keep it simple and deployable as static files embedded in the Go binary.
+
+---
+
+## Feature 2 — Incremental Commit Plan
+
+---
+
+### Commit 11 — Embed static files + serve index.html
+
+**What you learn:** Go's `//go:embed` directive, `embed.FS`, serving embedded static files with `http.FileServer` — the whole frontend ships inside the compiled binary, no separate file server needed.
+
+**Files added:** `static/index.html`
+**Files modified:** `main.go`
+
+```go
+// static/index.html — minimal shell, just proves the route works
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>onoffapi</title>
+</head>
+<body>
+    <h1>onoffapi</h1>
+    <p>Machine control panel — loading…</p>
+</body>
+</html>
+```
+
+Add to `main.go` (the `//go:embed` directive must appear immediately above the `var`):
+
+```go
+import (
+    "embed"
+    "io/fs"
+    // ... existing imports ...
+)
+
+//go:embed static
+var staticFiles embed.FS
+
+func main() {
+    // ... existing store / mux setup ...
+
+    // Serve embedded static files at GET /
+    staticFS, _ := fs.Sub(staticFiles, "static")
+    mux.Handle("GET /", http.FileServer(http.FS(staticFS)))
+
+    // ... existing route registration and server start ...
+}
+```
+
+```bash
+go run main.go
+open http://localhost:8080   # should show the html page
+```
+
+#### Relevant Docs
+
+- [`embed` package](https://pkg.go.dev/embed) — `//go:embed` directive and `embed.FS`
+- [`io/fs.Sub`](https://pkg.go.dev/io/fs#Sub) — strips the `static/` prefix so `/index.html` is served at `/`, not `/static/index.html`
+- [`http.FileServer`](https://pkg.go.dev/net/http#FileServer) — serves an `fs.FS` over HTTP
+
+#### Troubleshooting
+
+**`pattern static: no matching files found` at build time**
+
+The `//go:embed static` directive requires the `static/` directory to exist and contain at least one file at compile time. Create `static/index.html` before running `go build` or `go run`.
+
+---
+
+### Commit 12 — Machine list UI
+
+**What you learn:** `fetch()` with custom headers, rendering JSON into the DOM, handling the API key from the browser.
+
+**Files modified:** `static/index.html`
+**Files added:** `static/style.css`
+
+```html
+<!-- static/index.html (Commit 12) -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>onoffapi</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>Machines</h1>
+    <div id="machines"></div>
+
+    <script>
+        const apiKey = localStorage.getItem('apiKey') || prompt('Enter API key:');
+        localStorage.setItem('apiKey', apiKey);
+
+        async function loadMachines() {
+            const res = await fetch('/machines', {
+                headers: { 'X-API-Key': apiKey }
+            });
+            if (!res.ok) { document.getElementById('machines').textContent = 'Error: ' + res.status; return; }
+            const machines = await res.json();
+            document.getElementById('machines').innerHTML = machines.map(m => `
+                <div class="machine">
+                    <h2>${m.name}</h2>
+                    <p><strong>IP:</strong> ${m.ip}</p>
+                    <p><strong>MAC:</strong> ${m.mac}</p>
+                    ${m.notes ? `<p>${m.notes}</p>` : ''}
+                </div>
+            `).join('');
+        }
+
+        loadMachines();
+    </script>
+</body>
+</html>
+```
+
+```css
+/* static/style.css */
+body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+.machine { border: 1px solid #ddd; border-radius: 6px; padding: 1rem; margin: 1rem 0; }
+.machine h2 { margin: 0 0 0.5rem; }
+button { margin-right: 0.5rem; padding: 0.4rem 1rem; cursor: pointer; }
+```
+
+```bash
+go run main.go
+# Open http://localhost:8080 — enter API key when prompted, machine list renders
+```
+
+---
+
+### Commit 13 — Wake / Shutdown action buttons
+
+**What you learn:** `fetch()` POST requests from the browser, button loading state, graceful error display. The endpoints themselves come in Feature 3 — buttons return 404 until then.
+
+**Files modified:** `static/index.html`
+
+Add Wake and Shutdown buttons to each machine card:
+
+```javascript
+// Replace the machine card innerHTML in loadMachines() with:
+`<div class="machine">
+    <h2>${m.name}</h2>
+    <p><strong>IP:</strong> ${m.ip}</p>
+    <p><strong>MAC:</strong> ${m.mac}</p>
+    ${m.notes ? `<p>${m.notes}</p>` : ''}
+    <button onclick="action('${m.id}', 'wake', this)">Wake</button>
+    <button onclick="action('${m.id}', 'shutdown', this)">Shutdown</button>
+    <span class="status" id="status-${m.id}"></span>
+</div>`
+
+// Add the action() function:
+async function action(id, cmd, btn) {
+    btn.disabled = true;
+    const statusEl = document.getElementById('status-' + id);
+    statusEl.textContent = cmd + '…';
+    try {
+        const res = await fetch('/machines/' + id + '/' + cmd, {
+            method: 'POST',
+            headers: { 'X-API-Key': apiKey }
+        });
+        statusEl.textContent = res.ok ? 'OK' : 'Error ' + res.status;
+    } catch (e) {
+        statusEl.textContent = 'Network error';
+    } finally {
+        btn.disabled = false;
+    }
+}
+```
+
+```css
+/* Add to style.css */
+.status { margin-left: 0.5rem; font-style: italic; color: #555; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+```
+
+```bash
+go run main.go
+# Wake/Shutdown buttons appear — return 404 until Feature 3 adds the routes
+```
 
 ---
 

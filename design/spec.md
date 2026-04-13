@@ -709,6 +709,45 @@ go test -v ./...      # verbose output
 go test -cover ./...  # with coverage %
 ```
 
+#### Using Delve for step debugging
+
+Go's equivalent of Python's `ipdb` is [Delve](https://github.com/go-delve/delve) (`dlv`). The VS Code Go extension bundles it — no separate install needed.
+
+Add `.vscode/launch.json` to the project root:
+
+```json
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run onoffapi",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}",
+            "env": {
+                "API_KEY": "devkey",
+                "PORT": "8080"
+            }
+        }
+    ]
+}
+```
+
+Then:
+1. Click in the gutter next to any line to set a breakpoint (red dot)
+2. Press **F5** — VS Code compiles and launches with Delve attached
+3. Hit the endpoint with `curl` — execution pauses at your breakpoint
+4. Use the debug toolbar to step through code
+
+| `ipdb` | VS Code + Delve |
+|--------|----------------|
+| `import ipdb; ipdb.set_trace()` | Click gutter to set breakpoint |
+| `n` next line | F10 step over |
+| `s` step into | F11 step into |
+| `c` continue | F5 continue |
+| `p variable` | Hover over variable, or the Variables panel |
+
 ---
 
 ### Commit 7 — Makefile

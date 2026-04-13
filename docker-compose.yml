@@ -20,4 +20,4 @@ services:
 
 networks:
   proxy:
-    external: true          # same nginx proxy network as kaizen
+    external: true          # shared Traefik proxy network

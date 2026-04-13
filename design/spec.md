@@ -2,7 +2,7 @@
 
 ## Overview
 
-A Go REST API hosted on `doylestonex` (Raspberry Pi, `zapto.howapped.org`) that allows remote power control of home machines — starting with `doylestone02` (192.168.0.203, MAC `58:47:ca:70:62:27`).
+A Go REST API hosted on `doylestonex` (Raspberry Pi, `howapped.zapto.org`) that allows remote power control of home machines — starting with `doylestone02` (192.168.0.203, MAC `58:47:ca:70:62:27`).
 
 The project is built in three features, each shipped as a series of incremental commits to aid learning Go.
 
@@ -121,10 +121,10 @@ All routes except `GET /health` require an `X-API-Key` header. The server refuse
 
 ```bash
 # Correct call
-curl -H "X-API-Key: your-key" https://zapto.howapped.org/onoffapi/machines
+curl -H "X-API-Key: your-key" https://howapped.zapto.org/onoffapi/machines
 
 # Missing key → 401
-curl https://zapto.howapped.org/onoffapi/machines
+curl https://howapped.zapto.org/onoffapi/machines
 ```
 
 **Generating a strong key:**
@@ -188,7 +188,7 @@ tools-onoffapi/
 
 ## API Design
 
-Base URL: `https://zapto.howapped.org/onoffapi`
+Base URL: `https://howapped.zapto.org/onoffapi`
 
 ### Health
 
@@ -796,10 +796,43 @@ Push to GitHub — check the Actions tab. Tests run automatically on every PR an
 
 **What you learn:** How to ship a Go binary to a remote server via rsync + SSH, then restart via docker-compose
 
-**Files added:** `deploy/deploy.sh`
+**Files added:** `deploy/deploy.sh`, `deploy/onoffapi-traefik.yml`
+**Files modified:** `docker-compose.yml`
 
 ```bash
-make deploy   # builds, rsyncs, restarts container on doylestonex
+make deploy   # rsyncs project, installs Traefik config, restarts container on doylestonex
+```
+
+#### Traefik configuration (doylestonex)
+
+doylestonex runs Traefik v3 as a reverse proxy with the **file provider** — each app drops a `.yml` file into `~/traefik/config/dynamic/` and Traefik picks it up immediately via its file watcher (no restart needed).
+
+**`deploy/onoffapi-traefik.yml`** defines two routers:
+
+| Router | Entrypoint | Rule | Middlewares |
+|--------|-----------|------|-------------|
+| `onoffapi` | `web` (port 80) | `Host + PathPrefix(/onoffapi)` | `https-redirect` |
+| `onoffapi-secure` | `websecure` (port 443) | `Host + PathPrefix(/onoffapi)` | `onoffapi-strip-prefix` + TLS |
+
+The `stripPrefix` middleware rewrites `/onoffapi/health` → `/health` before forwarding to the container, so the Go router sees clean paths.
+
+The service URL uses the Docker container name: `http://onoffapi:8080`. This works because all app containers join the shared `proxy` Docker network, which Traefik is also on.
+
+**`docker-compose.yml`** already declares:
+```yaml
+networks:
+  proxy:
+    external: true   # shared Traefik proxy network
+```
+
+**`deploy/deploy.sh`** copies the Traefik config on every deploy:
+```bash
+scp deploy/onoffapi-traefik.yml "$REMOTE_USER@$REMOTE_HOST:$HOME/traefik/config/dynamic/onoffapi.yml"
+```
+
+After a successful deploy, the API is reachable at:
+```
+https://howapped.zapto.org/onoffapi/health
 ```
 
 ---

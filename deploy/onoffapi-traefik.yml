@@ -1,0 +1,31 @@
+http:
+  routers:
+    onoffapi:
+      rule: "Host(`howapped.zapto.org`) && PathPrefix(`/onoffapi`)"
+      entryPoints:
+        - web
+      middlewares:
+        - https-redirect
+      service: onoffapi-service
+
+    onoffapi-secure:
+      rule: "Host(`howapped.zapto.org`) && PathPrefix(`/onoffapi`)"
+      entryPoints:
+        - websecure
+      middlewares:
+        - onoffapi-strip-prefix
+      service: onoffapi-service
+      tls:
+        certResolver: letsencrypt
+
+  middlewares:
+    onoffapi-strip-prefix:
+      stripPrefix:
+        prefixes:
+          - "/onoffapi"
+
+  services:
+    onoffapi-service:
+      loadBalancer:
+        servers:
+          - url: "http://onoffapi:8080"

@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/jonwhittlestone/tools-onoffapi/handlers"
 	"github.com/jonwhittlestone/tools-onoffapi/models"
@@ -21,6 +22,17 @@ func main() {
 	machineHandler := handlers.NewMachineHandler(store)
 	machineHandler.RegisterRoutes(mux)
 
+	apiKey := os.Getenv("API_KEY")
+	if apiKey == "" {
+		log.Fatal("API_KEY environment variable is required")
+	}
+	protected := handlers.RequireAPIKey(apiKey, mux)
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
 	log.Println("onoffapi listening on :8080")
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	log.Fatal(http.ListenAndServe(":"+port, protected))
 }

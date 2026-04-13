@@ -37,14 +37,9 @@ rsync -avz --exclude='.git' \
 echo "==> Installing Traefik dynamic config"
 scp deploy/onoffapi-traefik.yml "$REMOTE_USER@$REMOTE_HOST:$TRAEFIK_CONFIG_DIR/onoffapi.yml"
 
-# Build on Pi (native ARM64)
-echo "==> Building container on doylestonex"
-GIT_COMMIT=$(git rev-parse --short HEAD)
-ssh "$REMOTE_HOST" "cd $REMOTE_DIR && podman build --build-arg GIT_COMMIT=$GIT_COMMIT -f Dockerfile -t onoffapi:latest ."
-
-# Restart container
-echo "==> Restarting container"
-ssh "$REMOTE_HOST" "cd $REMOTE_DIR && podman-compose down || true && podman-compose up -d"
+# Restart container, forcing a rebuild from current source
+echo "==> Rebuilding and restarting container"
+ssh "$REMOTE_HOST" "cd $REMOTE_DIR && podman-compose down || true && podman-compose up -d --build"
 
 # Health check
 echo "==> Waiting for health check..."

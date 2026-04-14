@@ -1489,6 +1489,107 @@ go test ./...
 
 ---
 
+### Commit 16 — Machine state polling (button enable/disable)
+
+**What you learn:** `setInterval` for recurring browser-side polling, `fetch` with `AbortSignal` for timeout, conditionally enabling/disabling buttons based on state.
+
+**Files modified:** `static/index.html`, `static/style.css`
+
+Add a new Go endpoint `GET /machines/{id}/ping` that attempts a TCP dial to the machine's IP on port 22 (SSH port) and returns `{"reachable":true/false}`. The frontend polls this every 10 seconds per machine and reflects state in the buttons:
+
+- **☀️ WAKE** — disabled (greyed) when machine is reachable (already on); enabled when unreachable
+- **🌙 SHUTDOWN** — disabled when machine is unreachable (already off or no SSH); enabled when reachable
+
+```go
+// GET /machines/{id}/ping — lightweight reachability check via TCP dial to :22
+// Returns {"reachable":true} if the SSH port answers within 2s, {"reachable":false} otherwise.
+func (h *MachineHandler) ping(w http.ResponseWriter, r *http.Request) {
+    id := r.PathValue("id")
+    m, ok := h.store.GetByID(id)
+    if !ok {
+        writeError(w, http.StatusNotFound, "machine not found")
+        return
+    }
+    conn, err := net.DialTimeout("tcp", m.IP+":22", 2*time.Second)
+    reachable := err == nil
+    if conn != nil {
+        conn.Close()
+    }
+    w.Header().Set("Content-Type", "application/json")
+    if reachable {
+        w.Write([]byte(`{"reachable":true}`))
+    } else {
+        w.Write([]byte(`{"reachable":false}`))
+    }
+}
+```
+
+Frontend polling (added inside `loadMachines()` after rendering cards):
+
+```javascript
+// Poll reachability for each machine every 10 seconds
+function pollState(machineId) {
+    async function check() {
+        try {
+            const res = await fetch('./machines/' + machineId + '/ping', {
+                headers: { 'X-API-Key': apiKey },
+                signal: AbortSignal.timeout(3000)
+            });
+            if (!res.ok) return;
+            const { reachable } = await res.json();
+            const card = document.getElementById('status-' + machineId).closest('.machine');
+            card.querySelector('[data-cmd="wake"]').disabled = reachable;
+            card.querySelector('[data-cmd="shutdown"]').disabled = !reachable;
+            card.querySelector('.state-indicator').textContent = reachable ? '🟢 online' : '🔴 offline';
+        } catch (_) {}
+    }
+    check();
+    return setInterval(check, 10000);
+}
+```
+
+Add `data-cmd` attributes to the buttons so the poll function can target them:
+```html
+<button data-cmd="wake"     onclick="action('${m.id}','wake',this)">☀️ WAKE</button>
+<button data-cmd="shutdown" onclick="action('${m.id}','shutdown',this)">🌙 SHUTDOWN</button>
+<span class="state-indicator"></span>
+```
+
+```css
+/* style.css additions */
+.state-indicator { font-size: 0.85rem; margin-left: 0.5rem; }
+button:disabled { opacity: 0.35; cursor: not-allowed; }
+```
+
+---
+
+### Commit 17 — Mobile viewport and responsive layout
+
+**What you learn:** `<meta name="viewport">`, CSS `max-width` with `box-sizing`, preventing horizontal scroll on narrow screens.
+
+**Files modified:** `static/index.html`, `static/style.css`
+
+Two small but important changes for mobile usability:
+
+**1. Add viewport meta tag** to `<head>` — without this, mobile browsers render the page at ~980px and scale it down, requiring pinch-to-zoom:
+```html
+<meta name="viewport" content="width=device-width, initial-scale=1">
+```
+
+**2. Ensure buttons and cards fill available width** so there is no content wider than the screen:
+```css
+/* style.css — mobile layout fixes */
+.machine-actions button { width: 100%; box-sizing: border-box; }
+.machine { box-sizing: border-box; }
+```
+
+```bash
+# Test by opening Chrome DevTools → Toggle device toolbar (Ctrl+Shift+M)
+# Select a phone preset — page should fill width with no horizontal scrollbar
+```
+
+---
+
 ## Deployment on doylestonex
 
 ### Nginx reverse proxy config (matches kaizen pattern)

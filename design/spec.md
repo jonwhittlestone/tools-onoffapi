@@ -1527,6 +1527,14 @@ func (h *MachineHandler) ping(w http.ResponseWriter, r *http.Request) {
 Frontend polling (added inside `loadMachines()` after rendering cards):
 
 ```javascript
+// Apply reachability state to a machine card immediately
+function applyState(machineId, reachable) {
+    const card = document.getElementById('status-' + machineId).closest('.machine');
+    card.querySelector('[data-cmd="wake"]').disabled = reachable;
+    card.querySelector('[data-cmd="shutdown"]').disabled = !reachable;
+    card.querySelector('.state-indicator').textContent = reachable ? '🟢 online' : '🔴 offline';
+}
+
 // Poll reachability for each machine every 10 seconds
 function pollState(machineId) {
     async function check() {
@@ -1537,16 +1545,44 @@ function pollState(machineId) {
             });
             if (!res.ok) return;
             const { reachable } = await res.json();
-            const card = document.getElementById('status-' + machineId).closest('.machine');
-            card.querySelector('[data-cmd="wake"]').disabled = reachable;
-            card.querySelector('[data-cmd="shutdown"]').disabled = !reachable;
-            card.querySelector('.state-indicator').textContent = reachable ? '🟢 online' : '🔴 offline';
+            applyState(machineId, reachable);
         } catch (_) {}
     }
     check();
     return setInterval(check, 10000);
 }
 ```
+
+After a successful wake or shutdown, call `applyState` immediately so buttons reflect the new expected state without waiting for the next poll cycle. Update `action()`:
+
+```javascript
+async function action(id, cmd, btn) {
+    btn.disabled = true;
+    const statusEl = document.getElementById('status-' + id);
+    statusEl.textContent = cmd + '…';
+    try {
+        const res = await fetch('./machines/' + id + '/' + cmd, {
+            method: 'POST',
+            headers: { 'X-API-Key': apiKey }
+        });
+        if (res.ok) {
+            statusEl.textContent = 'OK';
+            // Optimistically flip button state — poll will correct if wrong
+            applyState(id, cmd === 'wake');
+        } else {
+            statusEl.textContent = 'Error ' + res.status;
+            btn.disabled = false;
+        }
+    } catch (e) {
+        statusEl.textContent = 'Network error';
+        btn.disabled = false;
+    }
+}
+```
+
+> After a successful `wake`, `applyState(id, true)` disables WAKE and enables SHUTDOWN.
+> After a successful `shutdown`, `applyState(id, false)` disables SHUTDOWN and enables WAKE.
+> The next poll will correct state if the operation didn't actually change reachability.
 
 Add `data-cmd` attributes to the buttons so the poll function can target them:
 ```html
@@ -1563,13 +1599,11 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 
 ---
 
-### Commit 17 — Mobile viewport and responsive layout
+### Commit 17 — Mobile viewport, responsive layout, and light/dark theme
 
-**What you learn:** `<meta name="viewport">`, CSS `max-width` with `box-sizing`, preventing horizontal scroll on narrow screens.
+**What you learn:** `<meta name="viewport">`, CSS `max-width` with `box-sizing`, `prefers-color-scheme` media query, toggling a `data-theme` attribute with JS, persisting user preference in `localStorage`.
 
 **Files modified:** `static/index.html`, `static/style.css`
-
-Two small but important changes for mobile usability:
 
 **1. Add viewport meta tag** to `<head>` — without this, mobile browsers render the page at ~980px and scale it down, requiring pinch-to-zoom:
 ```html
@@ -1578,14 +1612,55 @@ Two small but important changes for mobile usability:
 
 **2. Ensure buttons and cards fill available width** so there is no content wider than the screen:
 ```css
-/* style.css — mobile layout fixes */
 .machine-actions button { width: 100%; box-sizing: border-box; }
 .machine { box-sizing: border-box; }
+```
+
+**3. Light/dark theme switcher** — CSS custom properties define both palettes; a toggle button in the app header switches between them and persists the choice in `localStorage`. Defaults to the OS preference via `prefers-color-scheme`.
+
+```css
+/* style.css — theme variables */
+:root {
+    --bg: #ffffff; --fg: #111111;
+    --card-border: #dddddd; --muted: #555555;
+}
+[data-theme="dark"] {
+    --bg: #1a1a1a; --fg: #eeeeee;
+    --card-border: #444444; --muted: #aaaaaa;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --bg: #1a1a1a; --fg: #eeeeee;
+        --card-border: #444444; --muted: #aaaaaa;
+    }
+}
+body { background: var(--bg); color: var(--fg); }
+.machine { border-color: var(--card-border); }
+.status, .state-indicator { color: var(--muted); }
+```
+
+```html
+<!-- Add theme toggle button next to logout in #app header -->
+<h1>Machines <button id="theme-toggle">🌓</button> <button id="logout">Logout</button></h1>
+```
+
+```javascript
+// Theme toggle — persists to localStorage, respects OS default on first visit
+const root = document.documentElement;
+const saved = localStorage.getItem('theme');
+if (saved) root.setAttribute('data-theme', saved);
+
+document.getElementById('theme-toggle').addEventListener('click', () => {
+    const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+});
 ```
 
 ```bash
 # Test by opening Chrome DevTools → Toggle device toolbar (Ctrl+Shift+M)
 # Select a phone preset — page should fill width with no horizontal scrollbar
+# Toggle theme button — switches between light and dark, persists on reload
 ```
 
 ---

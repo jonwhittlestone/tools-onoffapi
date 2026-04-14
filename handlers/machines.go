@@ -28,6 +28,7 @@ func (h *MachineHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /machines/{id}", h.deleteMachine)
 	mux.HandleFunc("POST /machines/{id}/wake", h.wake)
 	mux.HandleFunc("POST /machines/{id}/shutdown", h.shutdown)
+	mux.HandleFunc("GET /machines/{id}/ping", h.ping)
 }
 
 // listMachines handles GET /machines

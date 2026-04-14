@@ -24,6 +24,33 @@
     <script>
         let apiKey = localStorage.getItem('apiKey');
 
+        // Apply reachability state to a machine card immediately.
+        // Called by both the poll loop and action() so buttons stay in sync
+        // without waiting up to 10 seconds for the next poll.
+        function applyState(machineId, reachable) {
+            const card = document.getElementById('status-' + machineId).closest('.machine');
+            card.querySelector('[data-cmd="wake"]').disabled = reachable;
+            card.querySelector('[data-cmd="shutdown"]').disabled = !reachable;
+            card.querySelector('.state-indicator').textContent = reachable ? '🟢 online' : '🔴 offline';
+        }
+
+        // Poll GET /machines/{id}/ping every 10 seconds and update button state.
+        function pollState(machineId) {
+            async function check() {
+                try {
+                    const res = await fetch('./machines/' + machineId + '/ping', {
+                        headers: { 'X-API-Key': apiKey },
+                        signal: AbortSignal.timeout(3000)
+                    });
+                    if (!res.ok) return;
+                    const { reachable } = await res.json();
+                    applyState(machineId, reachable);
+                } catch (_) {}
+            }
+            check();
+            return setInterval(check, 10000);
+        }
+
         async function loadMachines() {
             const res = await fetch('./machines', {
                 headers: { 'X-API-Key': apiKey }
@@ -41,12 +68,14 @@
                     <p><strong>MAC:</strong> ${m.mac}</p>
                     ${m.notes ? `<p>${m.notes}</p>` : ''}
                     <div class="machine-actions">
-                        <button onclick="action('${m.id}', 'wake', this)">☀️ WAKE</button>
-                        <button onclick="action('${m.id}', 'shutdown', this)">🌙 SHUTDOWN</button>
+                        <button data-cmd="wake" onclick="action('${m.id}','wake',this)">☀️ WAKE</button>
+                        <button data-cmd="shutdown" onclick="action('${m.id}','shutdown',this)">🌙 SHUTDOWN</button>
+                        <span class="state-indicator"></span>
                         <span class="status" id="status-${m.id}"></span>
                     </div>
                 </div>
             `).join('');
+            machines.forEach(m => pollState(m.id));
         }
 
         function showApp() {
@@ -84,10 +113,16 @@
                     method: 'POST',
                     headers: { 'X-API-Key': apiKey }
                 });
-                statusEl.textContent = res.ok ? 'OK' : 'Error ' + res.status;
+                if (res.ok) {
+                    statusEl.textContent = 'OK';
+                    // Optimistically flip button state — poll will correct if wrong
+                    applyState(id, cmd === 'wake');
+                } else {
+                    statusEl.textContent = 'Error ' + res.status;
+                    btn.disabled = false;
+                }
             } catch (e) {
                 statusEl.textContent = 'Network error';
-            } finally {
                 btn.disabled = false;
             }
         }

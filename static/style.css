@@ -10,4 +10,5 @@ button { margin-right: 0.5rem; padding: 0.4rem 1rem; cursor: pointer; }
 .error { color: #c00; min-height: 1.2em; }
 #logout { float: right; font-size: 0.8rem; }
 .status { margin-left: 0.5rem; font-style: italic; color: #555; }
-button:disabled { opacity: 0.5; cursor: not-allowed; }
+.state-indicator { font-size: 0.85rem; margin-top: 0.25rem; }
+button:disabled { opacity: 0.35; cursor: not-allowed; }

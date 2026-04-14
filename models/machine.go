@@ -34,7 +34,7 @@ func NewStore() *Store {
 		IP:         "192.168.0.203",
 		MAC:        "58:47:ca:70:62:27",
 		SSHUser:    "jon",
-		SSHKeyPath: "/home/jon/.ssh/id_doylestone02",
+		SSHKeyPath: "/home/admin/.ssh/id_onoffapi_shutdown_doylestone02",
 		Notes:      "Gaming/media PC. Auto-shuts down at 23:59 via systemd timer.",
 	}
 	return s

@@ -94,7 +94,24 @@
 
         document.getElementById('logout').addEventListener('click', logout);
 
-        if (apiKey) { showApp(); } else { document.getElementById('login').style.display = ''; }
+        async function init() {
+            const urlKey = new URLSearchParams(window.location.search).get('key');
+            if (urlKey) {
+                const res = await fetch('./auth?key=' + encodeURIComponent(urlKey));
+                if (res.ok) {
+                    apiKey = urlKey;
+                    localStorage.setItem('apiKey', apiKey);
+                    history.replaceState(null, '', window.location.pathname);
+                    showApp();
+                } else {
+                    document.getElementById('login-error').textContent = 'Invalid key in link';
+                }
+            } else if (apiKey) {
+                showApp();
+            }
+        }
+
+        init();
     </script>
 </body>
 </html>

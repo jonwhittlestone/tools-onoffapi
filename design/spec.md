@@ -1315,6 +1315,40 @@ go test ./handlers/...
 
 ---
 
+#### Testing WoL to 192.168.0.203 from another Claude Code session
+
+**Pre-condition:** doylestone02 (192.168.0.203) must be powered off before running this test. The API must be deployed and running on doylestonex.
+
+**Instructions for Claude:**
+
+1. Confirm the deployed API is healthy:
+   ```bash
+   curl -sf https://howapped.zapto.org/onoffapi/health
+   # expect: {"status":"ok"}
+   ```
+
+2. Hit the wake endpoint with the API key:
+   ```bash
+   curl -s -X POST https://howapped.zapto.org/onoffapi/machines/doylestone02/wake \
+     -H "X-API-Key: f4e286dad0a26425b4db82b47459f4204589900c743bc90a727548336691f297"
+   # expect: {"status":"wake packet sent","broadcast":"192.168.0.255:9"}
+   ```
+
+3. Poll until doylestone02 responds to ping (allow up to 90 seconds for POST→BIOS→boot):
+   ```bash
+   for i in $(seq 1 18); do
+     ping -c1 -W2 192.168.0.203 &>/dev/null && echo "doylestone02 is up" && break
+     echo "attempt $i — still offline, waiting 5s…"; sleep 5
+   done
+   ```
+
+4. If it comes up, the WoL implementation is confirmed working end-to-end.
+   If it does not respond after 90 s, check:
+   - WoL is enabled in doylestone02 BIOS/UEFI settings
+   - The NIC power setting in the OS (on Linux: `ethtool -s eno1 wol g`)
+   - That doylestonex and doylestone02 are on the same LAN segment (both on 192.168.0.0/24)
+
+
 ### Commit 15 — SSH shutdown endpoint
 
 **What you learn:** Adding an external Go module (`golang.org/x/crypto/ssh`), reading a PEM private key file, opening an SSH session and running a remote command.

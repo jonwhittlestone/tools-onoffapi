@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# deploy.sh — rsync to doylestonex, build natively on Pi (ARM64), restart via podman-compose
+# deploy.sh — rsync to doylestonex, build natively on Pi (ARM64), restart via podman
 #
 # Usage:
 #   make deploy
@@ -37,9 +37,30 @@ rsync -avz --exclude='.git' \
 echo "==> Installing Traefik dynamic config"
 scp deploy/onoffapi-traefik.yml "$REMOTE_USER@$REMOTE_HOST:$TRAEFIK_CONFIG_DIR/onoffapi.yml"
 
-# Restart container, forcing a rebuild from current source
-echo "==> Rebuilding and restarting container"
-ssh "$REMOTE_HOST" "cd $REMOTE_DIR && podman-compose down || true && podman-compose up -d --build"
+# Rebuild image and restart container with host networking.
+# podman-compose has a bug in v4.3.1 where it attaches the container to both
+# --network host AND the auto-created project bridge, which Podman rejects.
+# We use podman-compose for the build and podman run directly for the start.
+echo "==> Rebuilding image"
+ssh "$REMOTE_HOST" "cd $REMOTE_DIR && podman-compose build"
+
+echo "==> Restarting container with host networking"
+ssh "$REMOTE_HOST" "
+  podman stop tools-onoffapi_onoffapi_1 2>/dev/null || true
+  podman rm   tools-onoffapi_onoffapi_1 2>/dev/null || true
+  podman run -d \
+    --name tools-onoffapi_onoffapi_1 \
+    --network host \
+    --env-file $REMOTE_DIR/.env \
+    -e PORT=8082 \
+    --restart unless-stopped \
+    --health-cmd 'curl -sf http://localhost:8082/health' \
+    --health-interval 30s \
+    --health-timeout 10s \
+    --health-retries 3 \
+    --health-start-period 5s \
+    localhost/tools-onoffapi_onoffapi:latest
+"
 
 # Health check
 echo "==> Waiting for health check..."

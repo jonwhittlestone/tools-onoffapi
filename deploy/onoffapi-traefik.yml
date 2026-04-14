@@ -28,4 +28,4 @@ http:
     onoffapi-service:
       loadBalancer:
         servers:
-          - url: "http://onoffapi:8080"
+          - url: "http://host.containers.internal:8082"

@@ -1016,6 +1016,114 @@ go run main.go
 
 ---
 
+### Commit 12b — Login page
+
+**What you learn:** Gating UI behind a localStorage-persisted session, replacing `prompt()` with a real HTML form, showing/hiding sections with `display` toggling.
+
+**Files modified:** `static/index.html`, `static/style.css`
+
+The API key doubles as the password. On first visit the login form is shown; on submit the key is stored in `localStorage` and the machine list loads. On subsequent visits the stored key is used directly — no login required. A logout button clears the key and returns to the login form.
+
+```html
+<!-- static/index.html (Commit 12b) -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>onoffapi</title>
+    <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+    <div id="login">
+        <h1>onoffapi</h1>
+        <form id="login-form">
+            <label for="password">API key</label>
+            <input type="password" id="password" placeholder="Enter API key" autofocus>
+            <button type="submit">Login</button>
+        </form>
+        <p id="login-error" class="error"></p>
+    </div>
+
+    <div id="app" style="display:none">
+        <h1>Machines <button id="logout">Logout</button></h1>
+        <div id="machines"></div>
+    </div>
+
+    <script>
+        let apiKey = localStorage.getItem('apiKey');
+
+        async function loadMachines() {
+            const res = await fetch('./machines', {
+                headers: { 'X-API-Key': apiKey }
+            });
+            if (!res.ok) {
+                if (res.status === 401) { logout(); return; }
+                document.getElementById('machines').textContent = 'Error: ' + res.status;
+                return;
+            }
+            const machines = await res.json();
+            document.getElementById('machines').innerHTML = machines.map(m => `
+                <div class="machine">
+                    <h2>${m.name}</h2>
+                    <p><strong>IP:</strong> ${m.ip}</p>
+                    <p><strong>MAC:</strong> ${m.mac}</p>
+                    ${m.notes ? `<p>${m.notes}</p>` : ''}
+                </div>
+            `).join('');
+        }
+
+        function showApp() {
+            document.getElementById('login').style.display = 'none';
+            document.getElementById('app').style.display = '';
+            loadMachines();
+        }
+
+        function logout() {
+            localStorage.removeItem('apiKey');
+            apiKey = null;
+            document.getElementById('app').style.display = 'none';
+            document.getElementById('login').style.display = '';
+            document.getElementById('password').value = '';
+        }
+
+        document.getElementById('login-form').addEventListener('submit', async e => {
+            e.preventDefault();
+            apiKey = document.getElementById('password').value.trim();
+            const res = await fetch('./machines', { headers: { 'X-API-Key': apiKey } });
+            if (!res.ok) {
+                document.getElementById('login-error').textContent = 'Invalid API key';
+                return;
+            }
+            localStorage.setItem('apiKey', apiKey);
+            showApp();
+        });
+
+        document.getElementById('logout').addEventListener('click', logout);
+
+        if (apiKey) { showApp(); } else { document.getElementById('login').style.display = ''; }
+    </script>
+</body>
+</html>
+```
+
+```css
+/* additions to static/style.css */
+#login { max-width: 360px; margin: 4rem auto; padding: 2rem; border: 1px solid #ddd; border-radius: 8px; }
+#login h1 { margin-top: 0; }
+#login input { display: block; width: 100%; padding: 0.5rem; margin: 0.5rem 0 1rem; box-sizing: border-box; }
+.error { color: #c00; min-height: 1.2em; }
+#logout { float: right; font-size: 0.8rem; }
+```
+
+```bash
+go run main.go
+# Open http://localhost:8080 — login form shown on first visit
+# Enter API key → machine list renders
+# Refresh — machine list shown directly (key persisted in localStorage)
+```
+
+---
+
 ### Commit 13 — Wake / Shutdown action buttons
 
 **What you learn:** `fetch()` POST requests from the browser, button loading state, graceful error display. The endpoints themselves come in Feature 3 — buttons return 404 until then.

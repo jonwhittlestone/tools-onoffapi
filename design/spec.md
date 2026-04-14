@@ -16,12 +16,12 @@ The project is built in three features, each shipped as a series of incremental 
 
 **doylestone02 SSH:**
 ```bash
-ssh -i ~/.ssh/id_doylestone02 jon@192.168.0.203
+ssh -i ~/.ssh/id_onoffapi_shutdown_doylestone02 jon@192.168.0.203
 ```
 
 **doylestone02 shutdown (remote):**
 ```bash
-ssh -i ~/.ssh/id_doylestone02 jon@192.168.0.203 "sudo poweroff"
+ssh -i ~/.ssh/id_onoffapi_shutdown_doylestone02 jon@192.168.0.203 "sudo poweroff"
 ```
 
 ---
@@ -224,7 +224,7 @@ Base URL: `https://howapped.zapto.org/onoffapi`
   "ip": "192.168.0.203",
   "mac": "58:47:ca:70:62:27",
   "ssh_user": "jon",
-  "ssh_key_path": "/home/jon/.ssh/id_doylestone02",
+  "ssh_key_path": "/home/jon/.ssh/id_onoffapi_shutdown_doylestone02",
   "notes": "Gaming/media PC. Auto-shuts down at 23:59."
 }
 ```
@@ -351,7 +351,7 @@ func NewStore() *Store {
 		IP:         "192.168.0.203",
 		MAC:        "58:47:ca:70:62:27",
 		SSHUser:    "jon",
-		SSHKeyPath: "/home/jon/.ssh/id_doylestone02",
+		SSHKeyPath: "/home/jon/.ssh/id_onoffapi_shutdown_doylestone02",
 		Notes:      "Gaming/media PC. Auto-shuts down at 23:59 via systemd timer.",
 	}
 	return s
@@ -1350,6 +1350,51 @@ go test ./handlers/...
 
 
 ### Commit 15 — SSH shutdown endpoint
+
+#### Pre-requisites — SSH key setup
+
+The shutdown handler reads a private key from `SSHKeyPath` at runtime. The key is **not** embedded in the binary or the image — it is mounted into the container as a read-only volume at deploy time.
+
+**1. Generate a keypair on doylestonex** (once):
+```bash
+ssh-keygen -t ed25519 -f /home/admin/.ssh/id_onoffapi_shutdown_doylestone02 -N ""
+```
+
+**2. Authorise it on doylestone02:**
+```bash
+ssh-copy-id -i /home/admin/.ssh/id_onoffapi_shutdown_doylestone02.pub jon@192.168.0.203
+# verify:
+ssh -i /home/admin/.ssh/id_onoffapi_shutdown_doylestone02 jon@192.168.0.203 "echo ok"
+```
+
+**3. Allow passwordless `sudo poweroff` on doylestone02** — the SSH session has no TTY so sudo needs `NOPASSWD`. Run this directly on doylestone02 (requires an interactive terminal — cannot be done over a non-interactive SSH session):
+```bash
+echo 'jon ALL=(ALL) NOPASSWD: /sbin/poweroff, /usr/sbin/poweroff' | sudo tee /etc/sudoers.d/onoffapi-poweroff
+sudo chmod 440 /etc/sudoers.d/onoffapi-poweroff
+```
+
+Verify it works without a password:
+```bash
+sudo -n /usr/sbin/poweroff --help 2>&1 | head -1   # should NOT prompt for password
+```
+
+Then confirm end-to-end from doylestonex:
+```bash
+ssh -i /home/admin/.ssh/id_onoffapi_shutdown_doylestone02 jon@192.168.0.203 'sudo -n poweroff'
+# machine powers off — connection drops cleanly
+```
+
+**4. Mount the key into the container** — `deploy.sh` passes `-v` to `podman run` so the key is available at the same path inside the container without being baked into the image:
+```bash
+-v /home/admin/.ssh/id_onoffapi_shutdown_doylestone02:/home/admin/.ssh/id_onoffapi_shutdown_doylestone02:ro
+```
+
+**5. Update `SSHKeyPath` in `models/machine.go`** to the in-container path (mirrors the host path):
+```go
+SSHKeyPath: "/home/admin/.ssh/id_onoffapi_shutdown_doylestone02",
+```
+
+---
 
 **What you learn:** Adding an external Go module (`golang.org/x/crypto/ssh`), reading a PEM private key file, opening an SSH session and running a remote command.
 

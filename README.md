@@ -123,6 +123,53 @@ Set `API_KEY` in the environment (or `.env` on the Pi) before starting the conta
 
 ---
 
+## Provisioning secrets (DR / fresh Pi setup)
+
+If doylestonex is replaced or rebuilt, two secrets must be reprovisioned before the shutdown feature works. The API key is in `.env`; the SSH key must be created and authorised separately.
+
+### 1 — API key
+
+```bash
+# On doylestonex — create or restore .env
+echo "API_KEY=<your-key>" > /home/admin/www/tools-onoffapi/.env
+```
+
+### 2 — SSH shutdown key (`id_onoffapi_shutdown_doylestone02`)
+
+This key is used by the running container to SSH into target machines and run `sudo poweroff`. It is mounted read-only into the container at deploy time — it is **never baked into the image**.
+
+**On doylestonex** — generate the keypair:
+```bash
+ssh-keygen -t ed25519 -f /home/admin/.ssh/id_onoffapi_shutdown_doylestone02 -N ""
+```
+
+**On each target machine** (e.g. doylestone02) — authorise the public key:
+```bash
+ssh-copy-id -i /home/admin/.ssh/id_onoffapi_shutdown_doylestone02.pub jon@192.168.0.203
+# verify:
+ssh -i /home/admin/.ssh/id_onoffapi_shutdown_doylestone02 jon@192.168.0.203 "echo ok"
+```
+
+**On each target machine** — allow passwordless `sudo poweroff`. Must be run in an interactive terminal on the machine (cannot be done over a non-interactive SSH session):
+```bash
+echo 'jon ALL=(ALL) NOPASSWD: /sbin/poweroff, /usr/sbin/poweroff' | sudo tee /etc/sudoers.d/onoffapi-poweroff
+sudo chmod 440 /etc/sudoers.d/onoffapi-poweroff
+```
+
+Confirm from doylestonex that it works without a password prompt:
+```bash
+ssh -i /home/admin/.ssh/id_onoffapi_shutdown_doylestone02 jon@192.168.0.203 'sudo -n poweroff'
+```
+
+The `deploy.sh` script mounts the key into the container automatically:
+```bash
+-v /home/admin/.ssh/id_onoffapi_shutdown_doylestone02:/home/admin/.ssh/id_onoffapi_shutdown_doylestone02:ro
+```
+
+No redeploy is needed after provisioning the key — the volume mount picks it up on the next container restart.
+
+---
+
 ## Incremental commit sequence
 
 Each commit is a working, testable step. See `design/spec.md` for full detail.

@@ -1176,23 +1176,271 @@ go run main.go
 
 ---
 
-## Feature 3 — Wake and Shutdown (next)
+## Feature 3 — Wake and Shutdown
 
-### Wake (POST /machines/{id}/wake)
+The ☀️ WAKE and 🌙 SHUTDOWN buttons from Feature 2 currently return 404. Feature 3 implements the two POST endpoints that back them. Both run on doylestonex, which is on the same LAN as the machines being controlled.
 
-Sends a WoL magic packet to the machine's MAC address from doylestonex (which is on the same LAN via the router).
+---
 
-Implementation: Go `net` package constructs the 102-byte magic packet (6×`0xFF` + 16× MAC bytes) and sends as UDP broadcast to port 9.
+### Commit 14 — Wake-on-LAN endpoint
 
-No external tool needed — pure Go.
+**What you learn:** UDP networking with Go's `net` package, constructing a fixed-layout binary packet by hand, broadcast addresses.
 
-### Shutdown (POST /machines/{id}/shutdown)
+**Files added:** `handlers/wake.go`, `handlers/wake_test.go`
+**Files modified:** `handlers/machines.go` (register route)
 
-SSHes to the target machine and runs `sudo poweroff`.
+A WoL magic packet is exactly 102 bytes:
+- 6 bytes of `0xFF`
+- The 6-byte MAC address repeated 16 times
 
-Implementation: `golang.org/x/crypto/ssh` package. Reads the SSH private key from `ssh_key_path` stored in the machine record and executes the shutdown command.
+It is sent as a UDP datagram to the broadcast address `255.255.255.255:9`. No external tool or library is needed — pure stdlib.
 
-**Security note:** The API should be protected by a shared secret header (`X-API-Key`) before Feature 3 is deployed. Anyone who can reach the API endpoint would otherwise be able to shut down machines.
+```go
+// handlers/wake.go
+package handlers
+
+import (
+	"encoding/hex"
+	"fmt"
+	"net"
+	"net/http"
+	"strings"
+)
+
+func buildMagicPacket(mac string) ([]byte, error) {
+	parts := strings.Split(strings.ReplaceAll(mac, "-", ":"), ":")
+	if len(parts) != 6 {
+		return nil, fmt.Errorf("invalid MAC address: %s", mac)
+	}
+	macBytes, err := hex.DecodeString(strings.Join(parts, ""))
+	if err != nil {
+		return nil, fmt.Errorf("invalid MAC address: %w", err)
+	}
+
+	pkt := make([]byte, 102)
+	for i := 0; i < 6; i++ {
+		pkt[i] = 0xFF
+	}
+	for i := 1; i <= 16; i++ {
+		copy(pkt[i*6:], macBytes)
+	}
+	return pkt, nil
+}
+
+func (h *MachineHandler) wake(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	m, ok := h.store.GetByID(id)
+	if !ok {
+		writeError(w, http.StatusNotFound, "machine not found")
+		return
+	}
+
+	pkt, err := buildMagicPacket(m.MAC)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	conn, err := net.Dial("udp", "255.255.255.255:9")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not open UDP socket")
+		return
+	}
+	defer conn.Close()
+	conn.Write(pkt)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"status":"wake packet sent"}`))
+}
+```
+
+Register in `handlers/machines.go`:
+
+```go
+// Add inside RegisterRoutes:
+mux.HandleFunc("POST /machines/{id}/wake", h.wake)
+```
+
+```go
+// handlers/wake_test.go
+package handlers_test
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/jonwhittlestone/tools-onoffapi/handlers"
+	"github.com/jonwhittlestone/tools-onoffapi/models"
+)
+
+func TestBuildMagicPacket(t *testing.T) {
+	// Valid MAC — packet must be 102 bytes, first 6 = 0xFF, bytes 6-11 = MAC
+	pkt, err := handlers.BuildMagicPacketExported("58:47:ca:70:62:27")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(pkt) != 102 {
+		t.Fatalf("expected 102 bytes, got %d", len(pkt))
+	}
+	for i := 0; i < 6; i++ {
+		if pkt[i] != 0xFF {
+			t.Fatalf("byte %d: expected 0xFF, got %02x", i, pkt[i])
+		}
+	}
+}
+
+func TestWakeNotFound(t *testing.T) {
+	store := models.NewStore()
+	h := handlers.NewMachineHandler(store)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	req := httptest.NewRequest("POST", "/machines/unknown/wake", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", w.Code)
+	}
+}
+```
+
+> **Note on exported test helper:** To test `buildMagicPacket` (unexported), either move the test into package `handlers` (not `handlers_test`) or export a thin wrapper. The example above uses a wrapper `BuildMagicPacketExported` — add it as a `export_test.go` file in the handlers package.
+
+```bash
+go test ./handlers/...
+# POST /machines/doylestone02/wake → {"status":"wake packet sent"}
+```
+
+---
+
+#### Testing WoL to 192.168.0.203 from another Claude Code session
+
+**Pre-condition:** doylestone02 (192.168.0.203) must be powered off before running this test. The API must be deployed and running on doylestonex.
+
+**Instructions for Claude:**
+
+1. Confirm the deployed API is healthy:
+   ```bash
+   curl -sf https://howapped.zapto.org/onoffapi/health
+   # expect: {"status":"ok"}
+   ```
+
+2. Hit the wake endpoint with the API key:
+   ```bash
+   curl -s -X POST https://howapped.zapto.org/onoffapi/machines/doylestone02/wake \
+     -H "X-API-Key: f4e286dad0a26425b4db82b47459f4204589900c743bc90a727548336691f297"
+   # expect: {"status":"wake packet sent","broadcast":"192.168.0.255:9"}
+   ```
+
+3. Poll until doylestone02 responds to ping (allow up to 90 seconds for POST→BIOS→boot):
+   ```bash
+   for i in $(seq 1 18); do
+     ping -c1 -W2 192.168.0.203 &>/dev/null && echo "doylestone02 is up" && break
+     echo "attempt $i — still offline, waiting 5s…"; sleep 5
+   done
+   ```
+
+4. If it comes up, the WoL implementation is confirmed working end-to-end.
+   If it does not respond after 90 s, check:
+   - WoL is enabled in doylestone02 BIOS/UEFI settings
+   - The NIC power setting in the OS (on Linux: `ethtool -s eno1 wol g`)
+   - That doylestonex and doylestone02 are on the same LAN segment (both on 192.168.0.0/24)
+
+
+### Commit 15 — SSH shutdown endpoint
+
+**What you learn:** Adding an external Go module (`golang.org/x/crypto/ssh`), reading a PEM private key file, opening an SSH session and running a remote command.
+
+**Files added:** `handlers/shutdown.go`, `handlers/shutdown_test.go`
+**Files modified:** `handlers/machines.go` (register route), `go.mod`, `go.sum`
+
+```go
+// handlers/shutdown.go
+package handlers
+
+import (
+	"fmt"
+	"net/http"
+	"os"
+	"time"
+
+	"golang.org/x/crypto/ssh"
+)
+
+func (h *MachineHandler) shutdown(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	m, ok := h.store.GetByID(id)
+	if !ok {
+		writeError(w, http.StatusNotFound, "machine not found")
+		return
+	}
+	if m.SSHUser == "" || m.SSHKeyPath == "" {
+		writeError(w, http.StatusUnprocessableEntity, "machine has no SSH credentials")
+		return
+	}
+
+	keyBytes, err := os.ReadFile(m.SSHKeyPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("could not read SSH key: %v", err))
+		return
+	}
+	signer, err := ssh.ParsePrivateKey(keyBytes)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not parse SSH key")
+		return
+	}
+
+	cfg := &ssh.ClientConfig{
+		User:            m.SSHUser,
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // acceptable on a trusted LAN
+		Timeout:         5 * time.Second,
+	}
+	client, err := ssh.Dial("tcp", m.IP+":22", cfg)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Sprintf("SSH dial failed: %v", err))
+		return
+	}
+	defer client.Close()
+
+	sess, err := client.NewSession()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not open SSH session")
+		return
+	}
+	defer sess.Close()
+
+	if err := sess.Run("sudo poweroff"); err != nil {
+		// poweroff severs the connection — a "process exited" error is expected
+		_ = err
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"status":"shutdown command sent"}`))
+}
+```
+
+Register in `handlers/machines.go`:
+
+```go
+mux.HandleFunc("POST /machines/{id}/shutdown", h.shutdown)
+```
+
+Add the dependency:
+
+```bash
+go get golang.org/x/crypto/ssh
+go mod tidy
+```
+
+```bash
+go test ./...
+# POST /machines/doylestone02/shutdown → {"status":"shutdown command sent"}
+```
+
+> **Security note:** `ssh.InsecureIgnoreHostKey()` skips host-key verification. This is acceptable here because the connection is to a fixed LAN IP managed by the same person. On an untrusted network, store and verify the expected host key instead.
 
 ---
 

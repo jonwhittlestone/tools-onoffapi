@@ -6,18 +6,33 @@
     <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-    <h1>Machines</h1>
-    <div id="machines"></div>
+    <div id="login">
+        <h1>onoffapi</h1>
+        <form id="login-form">
+            <label for="password">API key</label>
+            <input type="password" id="password" placeholder="Enter API key" autofocus>
+            <button type="submit">Login</button>
+        </form>
+        <p id="login-error" class="error"></p>
+    </div>
+
+    <div id="app" style="display:none">
+        <h1>Machines <button id="logout">Logout</button></h1>
+        <div id="machines"></div>
+    </div>
 
     <script>
-        const apiKey = localStorage.getItem('apiKey') || prompt('Enter API key:');
-        localStorage.setItem('apiKey', apiKey);
+        let apiKey = localStorage.getItem('apiKey');
 
         async function loadMachines() {
             const res = await fetch('./machines', {
                 headers: { 'X-API-Key': apiKey }
             });
-            if (!res.ok) { document.getElementById('machines').textContent = 'Error: ' + res.status; return; }
+            if (!res.ok) {
+                if (res.status === 401) { logout(); return; }
+                document.getElementById('machines').textContent = 'Error: ' + res.status;
+                return;
+            }
             const machines = await res.json();
             document.getElementById('machines').innerHTML = machines.map(m => `
                 <div class="machine">
@@ -29,7 +44,35 @@
             `).join('');
         }
 
-        loadMachines();
+        function showApp() {
+            document.getElementById('login').style.display = 'none';
+            document.getElementById('app').style.display = '';
+            loadMachines();
+        }
+
+        function logout() {
+            localStorage.removeItem('apiKey');
+            apiKey = null;
+            document.getElementById('app').style.display = 'none';
+            document.getElementById('login').style.display = '';
+            document.getElementById('password').value = '';
+        }
+
+        document.getElementById('login-form').addEventListener('submit', async e => {
+            e.preventDefault();
+            apiKey = document.getElementById('password').value.trim();
+            const res = await fetch('./machines', { headers: { 'X-API-Key': apiKey } });
+            if (!res.ok) {
+                document.getElementById('login-error').textContent = 'Invalid API key';
+                return;
+            }
+            localStorage.setItem('apiKey', apiKey);
+            showApp();
+        });
+
+        document.getElementById('logout').addEventListener('click', logout);
+
+        if (apiKey) { showApp(); } else { document.getElementById('login').style.display = ''; }
     </script>
 </body>
 </html>

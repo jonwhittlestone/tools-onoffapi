@@ -2,8 +2,12 @@ body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 
 .machine { border: 1px solid #ddd; border-radius: 6px; padding: 1rem; margin: 1rem 0; }
 .machine h2 { margin: 0 0 0.5rem; }
 button { margin-right: 0.5rem; padding: 0.4rem 1rem; cursor: pointer; }
+.machine-actions { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.75rem; }
+.machine-actions button { font-size: 1.1rem; padding: 0.75rem 1.5rem; text-transform: uppercase; letter-spacing: 0.05em; margin: 0; }
 #login { max-width: 360px; margin: 4rem auto; padding: 2rem; border: 1px solid #ddd; border-radius: 8px; }
 #login h1 { margin-top: 0; }
 #login input { display: block; width: 100%; padding: 0.5rem; margin: 0.5rem 0 1rem; box-sizing: border-box; }
 .error { color: #c00; min-height: 1.2em; }
 #logout { float: right; font-size: 0.8rem; }
+.status { margin-left: 0.5rem; font-style: italic; color: #555; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }

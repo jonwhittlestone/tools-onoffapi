@@ -3,9 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <title>onoffapi</title>
+    <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-    <h1>onoffapi</h1>
-    <p>Machine control panel — loading…</p>
+    <h1>Machines</h1>
+    <div id="machines"></div>
+
+    <script>
+        const apiKey = localStorage.getItem('apiKey') || prompt('Enter API key:');
+        localStorage.setItem('apiKey', apiKey);
+
+        async function loadMachines() {
+            const res = await fetch('./machines', {
+                headers: { 'X-API-Key': apiKey }
+            });
+            if (!res.ok) { document.getElementById('machines').textContent = 'Error: ' + res.status; return; }
+            const machines = await res.json();
+            document.getElementById('machines').innerHTML = machines.map(m => `
+                <div class="machine">
+                    <h2>${m.name}</h2>
+                    <p><strong>IP:</strong> ${m.ip}</p>
+                    <p><strong>MAC:</strong> ${m.mac}</p>
+                    ${m.notes ? `<p>${m.notes}</p>` : ''}
+                </div>
+            `).join('');
+        }
+
+        loadMachines();
+    </script>
 </body>
 </html>

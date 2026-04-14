@@ -40,6 +40,11 @@
                     <p><strong>IP:</strong> ${m.ip}</p>
                     <p><strong>MAC:</strong> ${m.mac}</p>
                     ${m.notes ? `<p>${m.notes}</p>` : ''}
+                    <div class="machine-actions">
+                        <button onclick="action('${m.id}', 'wake', this)">☀️ WAKE</button>
+                        <button onclick="action('${m.id}', 'shutdown', this)">🌙 SHUTDOWN</button>
+                        <span class="status" id="status-${m.id}"></span>
+                    </div>
                 </div>
             `).join('');
         }
@@ -69,6 +74,23 @@
             localStorage.setItem('apiKey', apiKey);
             showApp();
         });
+
+        async function action(id, cmd, btn) {
+            btn.disabled = true;
+            const statusEl = document.getElementById('status-' + id);
+            statusEl.textContent = cmd + '…';
+            try {
+                const res = await fetch('./machines/' + id + '/' + cmd, {
+                    method: 'POST',
+                    headers: { 'X-API-Key': apiKey }
+                });
+                statusEl.textContent = res.ok ? 'OK' : 'Error ' + res.status;
+            } catch (e) {
+                statusEl.textContent = 'Network error';
+            } finally {
+                btn.disabled = false;
+            }
+        }
 
         document.getElementById('logout').addEventListener('click', logout);
 

@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>onoffapi</title>
     <link rel="stylesheet" href="./style.css">
 </head>
@@ -17,7 +18,7 @@
     </div>
 
     <div id="app" style="display:none">
-        <h1>Machines <button id="logout">Logout</button></h1>
+        <h1>Machines <button id="theme-toggle">🌓</button> <button id="logout">Logout</button></h1>
         <div id="machines"></div>
     </div>
 
@@ -128,6 +129,19 @@
         }
 
         document.getElementById('logout').addEventListener('click', logout);
+
+        // Theme toggle — defaults to OS preference, persists choice in localStorage
+        const root = document.documentElement;
+        const saved = localStorage.getItem('theme');
+        if (saved) root.setAttribute('data-theme', saved);
+
+        document.getElementById('theme-toggle').addEventListener('click', () => {
+            const current = root.getAttribute('data-theme') ||
+                (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            const next = current === 'dark' ? 'light' : 'dark';
+            root.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+        });
 
         async function init() {
             const urlKey = new URLSearchParams(window.location.search).get('key');

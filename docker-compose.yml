@@ -9,7 +9,7 @@ services:
       - API_KEY=${API_KEY} # set in .env or export before running docker-compose up
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/8082' 2>/dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -57,6 +57,6 @@ func main() {
 		port = "8080"
 	}
 
-	log.Println("onoffapi listening on :8080")
+	log.Printf("onoffapi listening on :%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, protected))
 }

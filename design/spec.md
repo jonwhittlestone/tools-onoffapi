@@ -1665,6 +1665,33 @@ document.getElementById('theme-toggle').addEventListener('click', () => {
 
 ---
 
+## Prompt/Fix 1 — Shutdown SSH
+
+Whilst modifying `ssh bh` to be able to shutdown `doylestone02` I have broken the ability for this deployed application on `doylestonex` to be able to shutdown `doylestone02`. You may see the deployed logs for more information.
+
+It is likely to do with the ssh key and it is no longer an authorized key between doylestone02 and doylestonex.
+
+I will want to be able to shutdown the machine from this go service, as well as shutdown the machine from `ssh bh`. Please could you create a branch, address the issue, deploy, and allow me to smoke test. If ok, I will commit, (add the commit details with change detail as inline code in this doc - commit 18 below) including this amend to the design doc, create a PR and merge back to main.
+
+### Commit 18
+
+**What was fixed:** Two issues preventing the deployed service from functioning correctly after `ssh bh` key changes:
+
+1. **Orphaned container process** — a previous `podman run --network host` deployment left a native `onoffapi` binary running as root on `doylestonex` (PID 1725, cwd `/app`). It held port 8082, causing every subsequent container start to crash with `listen tcp :8082: bind: address already in use`. Fixed by killing the orphaned process (`sudo kill 1725`); the container's `--restart unless-stopped` policy brought the containerised service up automatically.
+
+2. **Hardcoded log port in `main.go`** — `log.Println("onoffapi listening on :8080")` was hardcoded regardless of the `PORT` env var. Changed to `log.Printf("onoffapi listening on :%s", port)`.
+
+**SSH key status:** The `id_onoffapi_shutdown_doylestone02` key on `doylestonex` remained authorised on `doylestone02` throughout — the SSH issue described in the prompt was masked by the port-conflict crash and was not actually broken.
+
+**Files modified:** `main.go`, `design/spec.md`
+
+```
+fix(commit-18): kill orphaned host process blocking port 8082; fix hardcoded log port
+- sudo kill <pid> on doylestonex to free port 8082 held by leaked container process
+- main.go: log.Printf("onoffapi listening on :%s", port) replaces hardcoded :8080
+```
+
+
 ## Deployment on doylestonex
 
 ### Nginx reverse proxy config (matches kaizen pattern)

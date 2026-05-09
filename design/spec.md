@@ -1691,6 +1691,38 @@ fix(commit-18): kill orphaned host process blocking port 8082; fix hardcoded log
 - main.go: log.Printf("onoffapi listening on :%s", port) replaces hardcoded :8080
 ```
 
+## Feature 4 - Suspend
+
+PLease implement the ability to suspend machines with `systemctl suspend`. The existing ssh technique will be used that was implemented for the shutdown feature.
+
+There should be a visual way that the user can identify the machine is in suspension.
+
+Also, can you reinstate light/dark mode and the switcher. This seems to have been lost in the last commit.
+
+Implement feature on appropriately named feature branch, by populating commit 19 below. Deploy, allow user to smoke test, then commit, push and create PR and merge to main.
+
+### Commit 19
+
+**What you learn:** Reusing the SSH handler pattern for a new power command; optimistic UI state for an action whose result can't be polled (suspended ≠ off from the network's perspective).
+
+**Pre-requisite on doylestone02** — add a NOPASSWD sudoers entry for `systemctl suspend` (same pattern as the poweroff entry):
+
+```bash
+echo 'jon ALL=(ALL) NOPASSWD: /bin/systemctl suspend, /usr/bin/systemctl suspend' | sudo tee /etc/sudoers.d/onoffapi-suspend
+sudo chmod 440 /etc/sudoers.d/onoffapi-suspend
+# verify:
+sudo -n systemctl suspend --help 2>&1 | head -1
+```
+
+**Files added:** `handlers/suspend.go`
+**Files modified:** `handlers/machines.go` (register route), `static/index.html`, `static/style.css`, `design/spec.md`
+
+**Changes:**
+- `handlers/suspend.go` — `POST /machines/{id}/suspend` via SSH `sudo systemctl suspend`, mirrors shutdown handler
+- `handlers/machines.go` — registers `POST /machines/{id}/suspend`
+- `static/index.html` — adds `💤 SUSPEND` button; `applyState()` gains a `suspended` flag that shows `💤 suspended` (purple) after clicking, resetting to online/offline on next poll; reinstates light/dark theme toggle (`🌓`) with `localStorage` persistence and `prefers-color-scheme` fallback
+- `static/style.css` — CSS custom properties for light/dark (`--bg`, `--fg`, `--card-border`, `--muted`); `.state-indicator.suspended` in purple; responsive button widths; themed login form inputs
+
 
 ## Deployment on doylestonex
 

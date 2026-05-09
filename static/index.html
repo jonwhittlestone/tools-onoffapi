@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>onoffapi</title>
     <link rel="stylesheet" href="./style.css">
 </head>
@@ -17,24 +18,50 @@
     </div>
 
     <div id="app" style="display:none">
-        <h1>Machines <button id="logout">Logout</button></h1>
+        <h1>Machines <button id="theme-toggle">🌓</button> <button id="logout">Logout</button></h1>
         <div id="machines"></div>
     </div>
 
     <script>
         let apiKey = localStorage.getItem('apiKey');
 
-        // Apply reachability state to a machine card immediately.
-        // Called by both the poll loop and action() so buttons stay in sync
-        // without waiting up to 10 seconds for the next poll.
-        function applyState(machineId, reachable) {
+        // Theme — restore saved preference or follow OS default
+        const root = document.documentElement;
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme) root.setAttribute('data-theme', savedTheme);
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('theme-toggle').addEventListener('click', () => {
+                const current = root.getAttribute('data-theme');
+                const isDark = current === 'dark' || (!current && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                const next = isDark ? 'light' : 'dark';
+                root.setAttribute('data-theme', next);
+                localStorage.setItem('theme', next);
+            });
+        });
+
+        // Apply reachability state to a machine card.
+        // suspended=true shows the 💤 indicator rather than plain offline.
+        function applyState(machineId, reachable, suspended) {
             const card = document.getElementById('status-' + machineId).closest('.machine');
             card.querySelector('[data-cmd="wake"]').disabled = reachable;
+            card.querySelector('[data-cmd="suspend"]').disabled = !reachable;
             card.querySelector('[data-cmd="shutdown"]').disabled = !reachable;
-            card.querySelector('.state-indicator').textContent = reachable ? '🟢 online' : '🔴 offline';
+            const indicator = card.querySelector('.state-indicator');
+            if (reachable) {
+                indicator.textContent = '🟢 online';
+                indicator.className = 'state-indicator';
+            } else if (suspended) {
+                indicator.textContent = '💤 suspended';
+                indicator.className = 'state-indicator suspended';
+            } else {
+                indicator.textContent = '🔴 offline';
+                indicator.className = 'state-indicator';
+            }
         }
 
-        // Poll GET /machines/{id}/ping every 10 seconds and update button state.
+        // Poll GET /machines/{id}/ping every 10 seconds.
+        // If the machine comes back online after a suspend, the indicator resets.
         function pollState(machineId) {
             async function check() {
                 try {
@@ -44,7 +71,7 @@
                     });
                     if (!res.ok) return;
                     const { reachable } = await res.json();
-                    applyState(machineId, reachable);
+                    applyState(machineId, reachable, false);
                 } catch (_) {}
             }
             check();
@@ -69,6 +96,7 @@
                     ${m.notes ? `<p>${m.notes}</p>` : ''}
                     <div class="machine-actions">
                         <button data-cmd="wake" onclick="action('${m.id}','wake',this)">☀️ WAKE</button>
+                        <button data-cmd="suspend" onclick="action('${m.id}','suspend',this)">💤 SUSPEND</button>
                         <button data-cmd="shutdown" onclick="action('${m.id}','shutdown',this)">🌙 SHUTDOWN</button>
                         <span class="state-indicator"></span>
                         <span class="status" id="status-${m.id}"></span>
@@ -115,8 +143,13 @@
                 });
                 if (res.ok) {
                     statusEl.textContent = 'OK';
-                    // Optimistically flip button state — poll will correct if wrong
-                    applyState(id, cmd === 'wake');
+                    if (cmd === 'wake') {
+                        applyState(id, true, false);
+                    } else if (cmd === 'suspend') {
+                        applyState(id, false, true);
+                    } else {
+                        applyState(id, false, false);
+                    }
                 } else {
                     statusEl.textContent = 'Error ' + res.status;
                     btn.disabled = false;

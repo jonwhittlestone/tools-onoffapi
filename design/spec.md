@@ -1723,6 +1723,30 @@ sudo -n systemctl suspend --help 2>&1 | head -1
 - `static/index.html` — adds `💤 SUSPEND` button; `applyState()` gains a `suspended` flag that shows `💤 suspended` (purple) after clicking, resetting to online/offline on next poll; reinstates light/dark theme toggle (`🌓`) with `localStorage` persistence and `prefers-color-scheme` fallback
 - `static/style.css` — CSS custom properties for light/dark (`--bg`, `--fg`, `--card-border`, `--muted`); `.state-indicator.suspended` in purple; responsive button widths; themed login form inputs
 
+---
+
+## Fix 2 — Old Docker container winning port 8082 on reboot
+
+After Feature 4 was deployed via Podman, the suspend button was visible immediately after deploy but disappeared after doylestonex rebooted. On reboot, an old Docker-based container (`tools-onoffapi-onoffapi-1`, created 2026-04-30, `unless-stopped` restart policy) started automatically and grabbed port 8082 before the Podman container could. The Podman container then crash-looped with `listen tcp :8082: bind: address already in use`, and the Docker container — built from the pre-Feature-4 image without the suspend button — was left serving traffic.
+
+### Commit 20
+
+**What was fixed:**
+
+1. **Old Docker container removed** — `docker stop tools-onoffapi-onoffapi-1 && docker rm tools-onoffapi-onoffapi-1` on doylestonex. The container was the original April 2026 deployment before the project switched to Podman. Its `unless-stopped` policy caused it to start on every reboot and race the Podman container for port 8082.
+
+2. **Dockerfile** — added `curl` to the `debian:bookworm-slim` final stage so the container health check (`curl -sf http://localhost:8082/health`) can run inside the container. Previously the health check always failed (container marked `unhealthy`) because `curl` was not in the slim base image.
+
+3. **deploy.sh** — added `sudo pkill -x onoffapi || true` before `podman run` to evict any orphaned native `onoffapi` process that may be holding port 8082 (same class of issue as Commit 18).
+
+**Files modified:** `Dockerfile`, `deploy/deploy.sh`, `design/spec.md`
+
+```
+fix(commit-20): remove old Docker container; add curl to image; kill orphan in deploy
+- docker rm tools-onoffapi-onoffapi-1 on doylestonex (Apr-30 Docker deploy, unless-stopped, was winning port 8082 on reboot)
+- Dockerfile: apt-get install curl in final stage so health-cmd works inside container
+- deploy.sh: sudo pkill -x onoffapi before podman run to clear any orphaned host process
+```
 
 ## Deployment on doylestonex
 

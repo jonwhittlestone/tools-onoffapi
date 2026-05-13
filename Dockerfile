@@ -26,6 +26,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o onoffapi main.go
 # ── Stage 2: run ────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim
 
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY --from=builder /app/onoffapi .

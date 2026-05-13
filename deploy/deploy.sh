@@ -48,6 +48,9 @@ echo "==> Restarting container with host networking"
 ssh "$REMOTE_HOST" "
   podman stop tools-onoffapi_onoffapi_1 2>/dev/null || true
   podman rm   tools-onoffapi_onoffapi_1 2>/dev/null || true
+  # Kill any orphaned onoffapi process holding port 8082 (host-network leak from prior deploys)
+  sudo pkill -x onoffapi 2>/dev/null || true
+  sleep 1
   podman run -d \
     --name tools-onoffapi_onoffapi_1 \
     --network host \

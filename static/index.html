@@ -44,9 +44,12 @@
         // suspended=true shows the 💤 indicator rather than plain offline.
         function applyState(machineId, reachable, suspended) {
             const card = document.getElementById('status-' + machineId).closest('.machine');
-            card.querySelector('[data-cmd="wake"]').disabled = reachable;
-            card.querySelector('[data-cmd="suspend"]').disabled = !reachable;
-            card.querySelector('[data-cmd="shutdown"]').disabled = !reachable;
+            const wakeBtn = card.querySelector('[data-cmd="wake"]');
+            const suspendBtn = card.querySelector('[data-cmd="suspend"]');
+            const shutdownBtn = card.querySelector('[data-cmd="shutdown"]');
+            if (wakeBtn) wakeBtn.disabled = reachable;
+            if (suspendBtn) suspendBtn.disabled = !reachable;
+            if (shutdownBtn) shutdownBtn.disabled = !reachable;
             const indicator = card.querySelector('.state-indicator');
             if (reachable) {
                 indicator.textContent = '🟢 online';
@@ -95,8 +98,8 @@
                     <p><strong>MAC:</strong> ${m.mac}</p>
                     ${m.notes ? `<p>${m.notes}</p>` : ''}
                     <div class="machine-actions">
-                        <button data-cmd="wake" onclick="action('${m.id}','wake',this)">☀️ WAKE</button>
-                        <button data-cmd="suspend" onclick="action('${m.id}','suspend',this)">💤 SUSPEND</button>
+                        ${m.hide_wake ? '' : `<button data-cmd="wake" onclick="action('${m.id}','wake',this)">☀️ WAKE</button>`}
+                        ${m.hide_suspend ? '' : `<button data-cmd="suspend" onclick="action('${m.id}','suspend',this)">💤 SUSPEND</button>`}
                         <button data-cmd="shutdown" onclick="action('${m.id}','shutdown',this)">🌙 SHUTDOWN</button>
                         <span class="state-indicator"></span>
                         <span class="status" id="status-${m.id}"></span>

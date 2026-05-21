@@ -5,13 +5,15 @@ import "sync"
 // Machine represents a network-accessible machine that can be remotely controlled.
 // JSON tags control how field names appear in API responses (snake_case, matching FastAPI convention).
 type Machine struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	IP         string `json:"ip"`
-	MAC        string `json:"mac"`
-	SSHUser    string `json:"ssh_user,omitempty"`
-	SSHKeyPath string `json:"ssh_key_path,omitempty"`
-	Notes      string `json:"notes,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	IP          string `json:"ip"`
+	MAC         string `json:"mac"`
+	SSHUser     string `json:"ssh_user,omitempty"`
+	SSHKeyPath  string `json:"ssh_key_path,omitempty"`
+	Notes       string `json:"notes,omitempty"`
+	HideWake    bool   `json:"hide_wake,omitempty"`
+	HideSuspend bool   `json:"hide_suspend,omitempty"`
 }
 
 // Store is a simple in-memory data store backed by a map.
@@ -36,6 +38,17 @@ func NewStore() *Store {
 		SSHUser:    "jon",
 		SSHKeyPath: "/home/admin/.ssh/id_onoffapi_shutdown_doylestone02",
 		Notes:      "Gaming/media PC. Auto-shuts down at 23:59 via systemd timer.",
+	}
+	// blackpants: handheld wifi cyberdeck — WoL unreliable over WiFi, shutdown only
+	s.machines["blackpants"] = Machine{
+		ID:          "blackpants",
+		Name:        "blackpants",
+		IP:          "192.168.0.246",
+		SSHUser:     "root",
+		SSHKeyPath:  "/home/admin/.ssh/id_bh",
+		Notes:       "Handheld wifi cyberdeck (doylestone02).",
+		HideWake:    true,
+		HideSuspend: true,
 	}
 	return s
 }

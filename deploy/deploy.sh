@@ -58,6 +58,7 @@ ssh "$REMOTE_HOST" "
     -e PORT=8082 \
     -v /home/admin/.ssh/id_onoffapi_shutdown_doylestone02:/home/admin/.ssh/id_onoffapi_shutdown_doylestone02:ro \
     -v /home/admin/.ssh/id_bh:/home/admin/.ssh/id_bh:ro \
+    -v /home/admin/.ssh/id_joseph_screentime:/home/admin/.ssh/id_joseph_screentime:ro \
     --restart unless-stopped \
     --health-cmd 'curl -sf http://localhost:8082/health' \
     --health-interval 30s \

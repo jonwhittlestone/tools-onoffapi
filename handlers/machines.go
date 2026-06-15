@@ -30,6 +30,9 @@ func (h *MachineHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /machines/{id}/shutdown", h.shutdown)
 	mux.HandleFunc("POST /machines/{id}/suspend", h.suspend)
 	mux.HandleFunc("GET /machines/{id}/ping", h.ping)
+	mux.HandleFunc("POST /machines/{id}/screentime", h.startScreentime)
+	mux.HandleFunc("DELETE /machines/{id}/screentime", h.stopScreentime)
+	mux.HandleFunc("POST /machines/{id}/screentime/unlock", h.unlockScreentime)
 }
 
 // listMachines handles GET /machines

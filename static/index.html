@@ -41,7 +41,6 @@
         });
 
         // Apply reachability state to a machine card.
-        // suspended=true shows the 💤 indicator rather than plain offline.
         function applyState(machineId, reachable, suspended) {
             const card = document.getElementById('status-' + machineId).closest('.machine');
             const wakeBtn = card.querySelector('[data-cmd="wake"]');
@@ -64,7 +63,6 @@
         }
 
         // Poll GET /machines/{id}/ping every 10 seconds.
-        // If the machine comes back online after a suspend, the indicator resets.
         function pollState(machineId) {
             async function check() {
                 try {
@@ -95,7 +93,7 @@
                 <div class="machine">
                     <h2>${m.name}</h2>
                     <p><strong>IP:</strong> ${m.ip}</p>
-                    <p><strong>MAC:</strong> ${m.mac}</p>
+                    ${m.mac ? `<p><strong>MAC:</strong> ${m.mac}</p>` : ''}
                     ${m.notes ? `<p>${m.notes}</p>` : ''}
                     <div class="machine-actions">
                         ${m.hide_wake ? '' : `<button data-cmd="wake" onclick="action('${m.id}','wake',this)">☀️ WAKE</button>`}
@@ -104,9 +102,112 @@
                         <span class="state-indicator"></span>
                         <span class="status" id="status-${m.id}"></span>
                     </div>
+                    ${m.has_screentime ? screentimePanel(m.id) : ''}
                 </div>
             `).join('');
             machines.forEach(m => pollState(m.id));
+        }
+
+        function screentimePanel(id) {
+            return `
+            <div class="screentime-panel">
+                <h3>Screen Time</h3>
+                <div class="screentime-presets">
+                    <span>Quick:</span>
+                    <button class="preset-btn" onclick="setDuration('${id}','30m')">30m</button>
+                    <button class="preset-btn" onclick="setDuration('${id}','1h')">1h</button>
+                    <button class="preset-btn" onclick="setDuration('${id}','2h')">2h</button>
+                    <button class="preset-btn" onclick="setDuration('${id}','3h')">3h</button>
+                </div>
+                <div class="screentime-inputs">
+                    <input type="text" id="st-duration-${id}" placeholder="e.g. 1h30m" value="1h">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="st-lock-${id}" onchange="toggleRestore('${id}')">
+                        Lock account
+                    </label>
+                    <span id="st-restore-wrap-${id}" style="display:none">
+                        Restore after:
+                        <input type="text" id="st-restore-${id}" value="10m" class="restore-input">
+                    </span>
+                </div>
+                <div class="screentime-actions">
+                    <button onclick="startScreentime('${id}')">▶ START TIMER</button>
+                    <button onclick="stopScreentime('${id}')">■ STOP TIMER</button>
+                    <button class="unlock-btn" onclick="unlockScreentime('${id}')">🔓 UNLOCK ACCOUNT</button>
+                </div>
+                <span class="status" id="st-status-${id}"></span>
+            </div>`;
+        }
+
+        function setDuration(machineId, duration) {
+            document.getElementById('st-duration-' + machineId).value = duration;
+        }
+
+        function toggleRestore(machineId) {
+            const checked = document.getElementById('st-lock-' + machineId).checked;
+            document.getElementById('st-restore-wrap-' + machineId).style.display = checked ? 'inline' : 'none';
+        }
+
+        async function startScreentime(machineId) {
+            const duration = document.getElementById('st-duration-' + machineId).value.trim();
+            const lockAccount = document.getElementById('st-lock-' + machineId).checked;
+            const restoreAfter = document.getElementById('st-restore-' + machineId).value.trim();
+            const statusEl = document.getElementById('st-status-' + machineId);
+
+            if (!duration) {
+                statusEl.textContent = 'Enter a duration first (e.g. 1h30m)';
+                return;
+            }
+
+            statusEl.textContent = 'Starting…';
+
+            const body = { duration, action: 'lock', lock_account: lockAccount };
+            if (lockAccount && restoreAfter) body.restore_after = restoreAfter;
+
+            try {
+                const res = await fetch('./machines/' + machineId + '/screentime', {
+                    method: 'POST',
+                    headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                if (res.ok) {
+                    const lockMsg = lockAccount ? ` · account locks, restores after ${restoreAfter || '10m'}` : '';
+                    statusEl.textContent = `Timer started: ${duration}${lockMsg}`;
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    statusEl.textContent = 'Error: ' + (data.error || res.status);
+                }
+            } catch (e) {
+                statusEl.textContent = 'Network error';
+            }
+        }
+
+        async function stopScreentime(machineId) {
+            const statusEl = document.getElementById('st-status-' + machineId);
+            statusEl.textContent = 'Stopping…';
+            try {
+                const res = await fetch('./machines/' + machineId + '/screentime', {
+                    method: 'DELETE',
+                    headers: { 'X-API-Key': apiKey }
+                });
+                statusEl.textContent = res.ok ? 'Timer stopped' : 'Error ' + res.status;
+            } catch (e) {
+                statusEl.textContent = 'Network error';
+            }
+        }
+
+        async function unlockScreentime(machineId) {
+            const statusEl = document.getElementById('st-status-' + machineId);
+            statusEl.textContent = 'Unlocking…';
+            try {
+                const res = await fetch('./machines/' + machineId + '/screentime/unlock', {
+                    method: 'POST',
+                    headers: { 'X-API-Key': apiKey }
+                });
+                statusEl.textContent = res.ok ? 'Account unlocked — Joseph can log in' : 'Error ' + res.status;
+            } catch (e) {
+                statusEl.textContent = 'Network error';
+            }
         }
 
         function showApp() {

@@ -5,15 +5,16 @@ import "sync"
 // Machine represents a network-accessible machine that can be remotely controlled.
 // JSON tags control how field names appear in API responses (snake_case, matching FastAPI convention).
 type Machine struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	IP          string `json:"ip"`
-	MAC         string `json:"mac"`
-	SSHUser     string `json:"ssh_user,omitempty"`
-	SSHKeyPath  string `json:"ssh_key_path,omitempty"`
-	Notes       string `json:"notes,omitempty"`
-	HideWake    bool   `json:"hide_wake,omitempty"`
-	HideSuspend bool   `json:"hide_suspend,omitempty"`
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	IP            string `json:"ip"`
+	MAC           string `json:"mac"`
+	SSHUser       string `json:"ssh_user,omitempty"`
+	SSHKeyPath    string `json:"ssh_key_path,omitempty"`
+	Notes         string `json:"notes,omitempty"`
+	HideWake      bool   `json:"hide_wake,omitempty"`
+	HideSuspend   bool   `json:"hide_suspend,omitempty"`
+	HasScreentime bool   `json:"has_screentime,omitempty"`
 }
 
 // Store is a simple in-memory data store backed by a map.
@@ -49,6 +50,21 @@ func NewStore() *Store {
 		Notes:       "Handheld wifi cyberdeck (doylestone02).",
 		HideWake:    true,
 		HideSuspend: true,
+	}
+	// joseph-laptop: EndlessOS laptop. WoL not viable (WiFi). Screentime managed via screentime-timer.py.
+	// One-time setup: generate SSH key on this server, copy public key to joseph's authorized_keys.
+	// ssh-keygen -t ed25519 -f /home/admin/.ssh/id_joseph_screentime -N ""
+	// ssh-copy-id -i /home/admin/.ssh/id_joseph_screentime.pub joseph@192.168.0.102
+	s.machines["joseph-laptop"] = Machine{
+		ID:            "joseph-laptop",
+		Name:          "joseph-laptop",
+		IP:            "192.168.0.102",
+		SSHUser:       "joseph",
+		SSHKeyPath:    "/home/admin/.ssh/id_joseph_screentime",
+		Notes:         "Joseph's EndlessOS laptop. Screen time managed via screentime-timer.py.",
+		HideWake:      true,
+		HideSuspend:   true,
+		HasScreentime: true,
 	}
 	return s
 }

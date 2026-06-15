@@ -17,6 +17,29 @@ func newScreentimeMux() *http.ServeMux {
 	return mux
 }
 
+func TestGetScreentime_NotFound(t *testing.T) {
+	req := httptest.NewRequest("GET", "/machines/unknown/screentime", nil)
+	w := httptest.NewRecorder()
+	newScreentimeMux().ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestGetScreentime_NoTimer(t *testing.T) {
+	req := httptest.NewRequest("GET", "/machines/doylestone02/screentime", nil)
+	w := httptest.NewRecorder()
+	newScreentimeMux().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["active"] != false {
+		t.Errorf("expected active=false, got %v", resp["active"])
+	}
+}
+
 func TestStartScreentime_NotFound(t *testing.T) {
 	body, _ := json.Marshal(screentimeStartRequest{Duration: "30m"})
 	req := httptest.NewRequest("POST", "/machines/unknown/screentime", bytes.NewReader(body))
@@ -81,6 +104,25 @@ func TestStartScreentime_InvalidAction(t *testing.T) {
 	}
 }
 
+func TestStartScreentime_InvalidDuration(t *testing.T) {
+	store := models.NewStore()
+	store.Create(models.Machine{
+		ID: "m2", Name: "M2", IP: "192.168.0.99", MAC: "aa:bb:cc:dd:ee:ff",
+		SSHUser: "jon", SSHKeyPath: "/some/key",
+	})
+	h := NewMachineHandler(store)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	body, _ := json.Marshal(screentimeStartRequest{Duration: "abc"})
+	req := httptest.NewRequest("POST", "/machines/m2/screentime", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
 func TestStartScreentime_MissingKeyFile(t *testing.T) {
 	store := models.NewStore()
 	store.Create(models.Machine{
@@ -115,5 +157,29 @@ func TestUnlockScreentime_NotFound(t *testing.T) {
 	newScreentimeMux().ServeHTTP(w, req)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestParseDurationSecs(t *testing.T) {
+	cases := []struct {
+		input string
+		want  int
+	}{
+		{"30m", 1800},
+		{"1h", 3600},
+		{"1h30m", 5400},
+		{"90s", 90},
+		{"2h30m15s", 9015},
+		{"90", 90},
+	}
+	for _, c := range cases {
+		got, err := parseDurationSecs(c.input)
+		if err != nil {
+			t.Errorf("parseDurationSecs(%q) error: %v", c.input, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("parseDurationSecs(%q) = %d, want %d", c.input, got, c.want)
+		}
 	}
 }

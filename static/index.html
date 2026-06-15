@@ -25,7 +25,7 @@
     <script>
         let apiKey = localStorage.getItem('apiKey');
 
-        // Theme — restore saved preference or follow OS default
+        // Theme
         const root = document.documentElement;
         const savedTheme = localStorage.getItem('theme');
         if (savedTheme) root.setAttribute('data-theme', savedTheme);
@@ -40,7 +40,6 @@
             });
         });
 
-        // Apply reachability state to a machine card.
         function applyState(machineId, reachable, suspended) {
             const card = document.getElementById('status-' + machineId).closest('.machine');
             const wakeBtn = card.querySelector('[data-cmd="wake"]');
@@ -62,7 +61,6 @@
             }
         }
 
-        // Poll GET /machines/{id}/ping every 10 seconds.
         function pollState(machineId) {
             async function check() {
                 try {
@@ -77,6 +75,73 @@
             }
             check();
             return setInterval(check, 10000);
+        }
+
+        // --- Screentime timer display ---
+        // Each machine with has_screentime gets a client-side tick (1s) + server sync (10s).
+        // The server is the source of truth; the client just interpolates between syncs.
+        // This means any browser on any device shows the same countdown after the next sync.
+
+        const screentimePolls = {}; // machineId → { tickId, syncId }
+
+        function startScreentimePoll(machineId) {
+            if (screentimePolls[machineId]) {
+                clearInterval(screentimePolls[machineId].tickId);
+                clearInterval(screentimePolls[machineId].syncId);
+            }
+
+            let remainingSecs = 0;
+
+            async function sync() {
+                try {
+                    const res = await fetch('./machines/' + machineId + '/screentime', {
+                        headers: { 'X-API-Key': apiKey }
+                    });
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    const display = document.getElementById('st-display-' + machineId);
+                    if (!display) return;
+                    if (data.active) {
+                        remainingSecs = data.remaining_secs;
+                        display.style.display = '';
+                        renderTimerDisplay(machineId, remainingSecs, data.lock_account);
+                    } else {
+                        remainingSecs = 0;
+                        display.style.display = 'none';
+                    }
+                } catch (_) {}
+            }
+
+            function tick() {
+                if (remainingSecs > 0) {
+                    remainingSecs = Math.max(0, remainingSecs - 1);
+                    const el = document.getElementById('st-countdown-' + machineId);
+                    if (el) el.textContent = fmtSecs(remainingSecs);
+                    if (remainingSecs === 0) {
+                        const display = document.getElementById('st-display-' + machineId);
+                        if (display) display.style.display = 'none';
+                    }
+                }
+            }
+
+            sync();
+            const syncId = setInterval(sync, 10000);
+            const tickId = setInterval(tick, 1000);
+            screentimePolls[machineId] = { tickId, syncId };
+        }
+
+        function renderTimerDisplay(machineId, secs, lockAccount) {
+            const el = document.getElementById('st-countdown-' + machineId);
+            const lockEl = document.getElementById('st-lock-indicator-' + machineId);
+            if (el) el.textContent = fmtSecs(secs);
+            if (lockEl) lockEl.style.display = lockAccount ? 'inline' : 'none';
+        }
+
+        function fmtSecs(s) {
+            const h = Math.floor(s / 3600);
+            const m = Math.floor((s % 3600) / 60);
+            const sec = s % 60;
+            return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
         }
 
         async function loadMachines() {
@@ -105,13 +170,23 @@
                     ${m.has_screentime ? screentimePanel(m.id) : ''}
                 </div>
             `).join('');
-            machines.forEach(m => pollState(m.id));
+            machines.forEach(m => {
+                pollState(m.id);
+                if (m.has_screentime) startScreentimePoll(m.id);
+            });
         }
 
         function screentimePanel(id) {
             return `
             <div class="screentime-panel">
                 <h3>Screen Time</h3>
+
+                <div id="st-display-${id}" class="st-timer-display" style="display:none">
+                    <span class="st-countdown" id="st-countdown-${id}">00:00:00</span>
+                    <span class="st-lock-badge" id="st-lock-indicator-${id}" style="display:none">🔒 locked</span>
+                    <span class="st-label">remaining</span>
+                </div>
+
                 <div class="screentime-presets">
                     <span>Quick:</span>
                     <button class="preset-btn" onclick="setDuration('${id}','30m')">30m</button>
@@ -154,11 +229,7 @@
             const restoreAfter = document.getElementById('st-restore-' + machineId).value.trim();
             const statusEl = document.getElementById('st-status-' + machineId);
 
-            if (!duration) {
-                statusEl.textContent = 'Enter a duration first (e.g. 1h30m)';
-                return;
-            }
-
+            if (!duration) { statusEl.textContent = 'Enter a duration first'; return; }
             statusEl.textContent = 'Starting…';
 
             const body = { duration, action: 'lock', lock_account: lockAccount };
@@ -171,8 +242,14 @@
                     body: JSON.stringify(body)
                 });
                 if (res.ok) {
-                    const lockMsg = lockAccount ? ` · account locks, restores after ${restoreAfter || '10m'}` : '';
-                    statusEl.textContent = `Timer started: ${duration}${lockMsg}`;
+                    const lockMsg = lockAccount ? ` · locks for ${restoreAfter || '10m'}` : '';
+                    statusEl.textContent = `Started: ${duration}${lockMsg}`;
+                    // Immediately sync the display
+                    if (screentimePolls[machineId]) {
+                        clearInterval(screentimePolls[machineId].syncId);
+                        clearInterval(screentimePolls[machineId].tickId);
+                    }
+                    startScreentimePoll(machineId);
                 } else {
                     const data = await res.json().catch(() => ({}));
                     statusEl.textContent = 'Error: ' + (data.error || res.status);
@@ -190,7 +267,12 @@
                     method: 'DELETE',
                     headers: { 'X-API-Key': apiKey }
                 });
-                statusEl.textContent = res.ok ? 'Timer stopped' : 'Error ' + res.status;
+                if (res.ok) {
+                    statusEl.textContent = 'Timer stopped';
+                    document.getElementById('st-display-' + machineId).style.display = 'none';
+                } else {
+                    statusEl.textContent = 'Error ' + res.status;
+                }
             } catch (e) {
                 statusEl.textContent = 'Network error';
             }
@@ -247,13 +329,9 @@
                 });
                 if (res.ok) {
                     statusEl.textContent = 'OK';
-                    if (cmd === 'wake') {
-                        applyState(id, true, false);
-                    } else if (cmd === 'suspend') {
-                        applyState(id, false, true);
-                    } else {
-                        applyState(id, false, false);
-                    }
+                    if (cmd === 'wake') applyState(id, true, false);
+                    else if (cmd === 'suspend') applyState(id, false, true);
+                    else applyState(id, false, false);
                 } else {
                     statusEl.textContent = 'Error ' + res.status;
                     btn.disabled = false;

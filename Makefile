@@ -1,4 +1,4 @@
-.PHONY: run build test fmt lint clean docker-build docker-up docker-down deploy
+.PHONY: run build test fmt lint clean docker-build docker-up docker-down deploy set-remote-env show-remote-env
 
 BINARY=bin/onoffapi
 PORT?=8080
@@ -67,3 +67,23 @@ docker-down:
 
 deploy:
 	@bash deploy/deploy.sh
+
+# .env on doylestonex is untracked and never synced by deploy.sh (it holds real
+# secrets; local .env has throwaway dev values). Set/update vars there with:
+#   make set-remote-env NAME=JOSEPH_SUDO_PW VALUE=secret
+REMOTE_HOST=doylestonex
+REMOTE_ENV_FILE=/home/admin/www/tools-onoffapi/.env
+
+set-remote-env:
+	@if [ -z "$(NAME)" ] || [ -z "$(VALUE)" ]; then \
+		echo "Usage: make set-remote-env NAME=VAR_NAME VALUE=var_value"; \
+		exit 1; \
+	fi
+	@ssh $(REMOTE_HOST) "grep -q '^$(NAME)=' $(REMOTE_ENV_FILE) 2>/dev/null \
+		&& sed -i 's|^$(NAME)=.*|$(NAME)=$(VALUE)|' $(REMOTE_ENV_FILE) \
+		|| echo '$(NAME)=$(VALUE)' >> $(REMOTE_ENV_FILE)"
+	@echo "Set $(NAME) in $(REMOTE_HOST):$(REMOTE_ENV_FILE)"
+
+# List keys (not values) currently set in the remote .env
+show-remote-env:
+	@ssh $(REMOTE_HOST) "cut -d= -f1 $(REMOTE_ENV_FILE)"

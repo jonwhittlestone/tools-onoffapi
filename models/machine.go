@@ -1,6 +1,9 @@
 package models
 
-import "sync"
+import (
+	"os"
+	"sync"
+)
 
 // Machine represents a network-accessible machine that can be remotely controlled.
 // JSON tags control how field names appear in API responses (snake_case, matching FastAPI convention).
@@ -11,6 +14,7 @@ type Machine struct {
 	MAC           string `json:"mac"`
 	SSHUser       string `json:"ssh_user,omitempty"`
 	SSHKeyPath    string `json:"ssh_key_path,omitempty"`
+	SSHSudoPw     string `json:"ssh_sudo_pw,omitempty"`
 	Notes         string `json:"notes,omitempty"`
 	HideWake      bool   `json:"hide_wake,omitempty"`
 	HideSuspend   bool   `json:"hide_suspend,omitempty"`
@@ -61,6 +65,7 @@ func NewStore() *Store {
 		IP:            "192.168.0.102",
 		SSHUser:       "joseph",
 		SSHKeyPath:    "/home/admin/.ssh/id_joseph_screentime",
+		SSHSudoPw:     os.Getenv("JOSEPH_SUDO_PW"),
 		Notes:         "Joseph's EndlessOS laptop. Screen time managed via screentime-timer.py.",
 		HideWake:      true,
 		HideSuspend:   true,

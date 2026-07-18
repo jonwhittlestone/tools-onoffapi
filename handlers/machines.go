@@ -17,7 +17,7 @@ type MachineHandler struct {
 func NewMachineHandler(store *models.Store) *MachineHandler {
 	return &MachineHandler{
 		store:           store,
-		screentimeStore: newScreentimeStore(),
+		screentimeStore: newScreentimeStore("/app/data/screentime.json"),
 	}
 }
 

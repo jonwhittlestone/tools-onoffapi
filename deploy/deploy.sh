@@ -29,6 +29,7 @@ ssh "$REMOTE_HOST" "podman image prune -f" || true
 # Sync project files
 echo "==> Syncing project to $REMOTE_HOST:$REMOTE_DIR"
 rsync -avz --exclude='.git' \
+           --exclude='.android/' \
            --exclude='bin/' \
            --exclude='.env' \
            ./ "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/"
@@ -43,6 +44,9 @@ scp deploy/onoffapi-traefik.yml "$REMOTE_USER@$REMOTE_HOST:$TRAEFIK_CONFIG_DIR/o
 # We use podman-compose for the build and podman run directly for the start.
 echo "==> Rebuilding image"
 ssh "$REMOTE_HOST" "cd $REMOTE_DIR && podman-compose build"
+
+echo "==> Ensuring data directory exists on $REMOTE_HOST"
+ssh "$REMOTE_HOST" "mkdir -p /home/admin/onoffapi-data"
 
 echo "==> Restarting container with host networking"
 ssh "$REMOTE_HOST" "
@@ -59,6 +63,7 @@ ssh "$REMOTE_HOST" "
     -v /home/admin/.ssh/id_onoffapi_shutdown_doylestone02:/home/admin/.ssh/id_onoffapi_shutdown_doylestone02:ro \
     -v /home/admin/.ssh/id_bh:/home/admin/.ssh/id_bh:ro \
     -v /home/admin/.ssh/id_joseph_screentime:/home/admin/.ssh/id_joseph_screentime:ro \
+    -v /home/admin/onoffapi-data:/app/data:Z \
     --restart unless-stopped \
     --health-cmd 'curl -sf http://localhost:8082/health' \
     --health-interval 30s \

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -13,6 +14,8 @@ import (
 // It SSHes into the target machine using the key stored at SSHKeyPath and
 // runs `sudo poweroff`. The SSH connection will be severed by the shutdown
 // itself, so any "process exited" error from sess.Run is expected and ignored.
+// If SSHSudoPw is set on the machine, the password is piped via sudo -S so
+// machines without passwordless sudo (e.g. EndlessOS) work correctly.
 func (h *MachineHandler) shutdown(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	m, ok := h.store.GetByID(id)
@@ -56,7 +59,14 @@ func (h *MachineHandler) shutdown(w http.ResponseWriter, r *http.Request) {
 	}
 	defer sess.Close()
 
-	if err := sess.Run("sudo poweroff"); err != nil {
+	cmd := "sudo poweroff"
+	if m.SSHSudoPw != "" {
+		// Pipe the sudo password via stdin so machines without passwordless sudo work.
+		sess.Stdin = strings.NewReader(m.SSHSudoPw + "\n")
+		cmd = "sudo -S poweroff"
+	}
+
+	if err := sess.Run(cmd); err != nil {
 		// poweroff severs the SSH connection before the command exits cleanly —
 		// an exit error here is expected and not a failure.
 		_ = err

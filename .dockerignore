@@ -1,0 +1,27 @@
+# Exclude non-project files that may exist in the build directory
+.git/
+bin/
+.android/
+Android/
+AndroidStudioProjects/
+Applications/
+Bruno*/
+Calibre*/
+Desktop/
+Documents/
+Downloads/
+Dropbox/
+mnt/
+Music/
+OpenAudible/
+Pictures/
+Public/
+snap/
+Templates/
+Videos/
+yams_services.txt
+*.mkv
+*.jpg
+*.jpeg
+*.png
+~,env

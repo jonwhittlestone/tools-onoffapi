@@ -221,6 +221,10 @@
                     <button id="st-stop-${id}" onclick="stopScreentime('${id}')" disabled>■ STOP TIMER</button>
                     <button id="st-unlock-${id}" class="unlock-btn" onclick="unlockScreentime('${id}')">🔓 UNLOCK ACCOUNT</button>
                 </div>
+                <div class="password-inputs">
+                    <input type="password" id="st-newpw-${id}" placeholder="New password">
+                    <button onclick="setPassword('${id}')">🔑 SET PASSWORD</button>
+                </div>
                 <span class="status" id="st-status-${id}"></span>
             </div>`;
         }
@@ -301,6 +305,32 @@
                     headers: { 'X-API-Key': apiKey }
                 });
                 statusEl.textContent = res.ok ? 'Account unlocked — Joseph can log in' : 'Error ' + res.status;
+            } catch (e) {
+                statusEl.textContent = 'Network error';
+            }
+        }
+
+        async function setPassword(machineId) {
+            const pwInput = document.getElementById('st-newpw-' + machineId);
+            const password = pwInput.value;
+            const statusEl = document.getElementById('st-status-' + machineId);
+
+            if (!password) { statusEl.textContent = 'Enter a new password first'; return; }
+            statusEl.textContent = 'Setting password…';
+
+            try {
+                const res = await fetch('./machines/' + machineId + '/password', {
+                    method: 'POST',
+                    headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                if (res.ok) {
+                    statusEl.textContent = 'Password updated';
+                    pwInput.value = '';
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    statusEl.textContent = 'Error: ' + (data.error || res.status);
+                }
             } catch (e) {
                 statusEl.textContent = 'Network error';
             }

@@ -18,6 +18,15 @@ REMOTE_HOST="doylestonex"
 REMOTE_DIR="/home/admin/www/tools-onoffapi"
 TRAEFIK_CONFIG_DIR="/home/admin/traefik/config/dynamic"
 
+# Refuse to deploy without JOSEPH_SUDO_PW — shutdown on joseph-laptop (EndlessOS,
+# no passwordless sudo) silently no-ops without it, per models/machine.go.
+JOSEPH_SUDO_PW_VALUE="$(grep -E '^JOSEPH_SUDO_PW=' .env 2>/dev/null | cut -d= -f2- || true)"
+if [ -z "$JOSEPH_SUDO_PW_VALUE" ]; then
+  echo "==> WARNING: JOSEPH_SUDO_PW is unset or empty in .env — aborting deploy." >&2
+  echo "    Set JOSEPH_SUDO_PW in .env before deploying." >&2
+  exit 1
+fi
+
 # Test SSH
 echo "==> Testing SSH connection"
 ssh "$REMOTE_HOST" "echo 'SSH OK'"

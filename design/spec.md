@@ -1769,6 +1769,28 @@ location /onoffapi/ {
 | kaizen | 3001 | 3001 |
 | onoffapi | 8080 | 8082 |
 
+
+## FAQ
+
+### 1. If i wanted to store machine details in a database, like a sqllite db, could this be compiled so that even the sqlite binary is included in the program binary?
+
+Yes. The standard approach is to use [`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite), a pure-Go port of SQLite that requires **no CGo and no external shared library**. Because it is plain Go, `go build` produces a single self-contained binary with SQLite baked in — no separate `.so` or `.dll` needed on the target machine.
+
+```bash
+go get modernc.org/sqlite
+```
+
+```go
+import (
+    "database/sql"
+    _ "modernc.org/sqlite"
+)
+
+db, err := sql.Open("sqlite", "./machines.db")
+```
+
+The alternative, [`github.com/mattn/go-sqlite3`](https://github.com/mattn/go-sqlite3), also embeds SQLite but relies on CGo, which complicates cross-compilation (you need a C toolchain for the target platform). Stick with `modernc.org/sqlite` if you want a simple `GOOS=linux GOARCH=amd64 go build` workflow.
+
 ---
 
 ## References

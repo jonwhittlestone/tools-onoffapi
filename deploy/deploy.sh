@@ -22,6 +22,17 @@ TRAEFIK_CONFIG_DIR="/home/admin/traefik/config/dynamic"
 echo "==> Testing SSH connection"
 ssh "$REMOTE_HOST" "echo 'SSH OK'"
 
+# Refuse to deploy without JOSEPH_SUDO_PW — shutdown on joseph-laptop (EndlessOS,
+# no passwordless sudo) silently no-ops without it, per models/machine.go.
+# .env is excluded from rsync (see below), so the container always reads the
+# copy already on $REMOTE_HOST at $REMOTE_DIR/.env — check that one, not local.
+JOSEPH_SUDO_PW_VALUE="$(ssh "$REMOTE_HOST" "grep -E '^JOSEPH_SUDO_PW=' $REMOTE_DIR/.env 2>/dev/null | cut -d= -f2-" || true)"
+if [ -z "$JOSEPH_SUDO_PW_VALUE" ]; then
+  echo "==> WARNING: JOSEPH_SUDO_PW is unset or empty in $REMOTE_HOST:$REMOTE_DIR/.env — aborting deploy." >&2
+  echo "    Set JOSEPH_SUDO_PW in that file before deploying." >&2
+  exit 1
+fi
+
 # Prune old images to save disk space
 echo "==> Pruning old images on doylestonex"
 ssh "$REMOTE_HOST" "podman image prune -f" || true
@@ -29,6 +40,7 @@ ssh "$REMOTE_HOST" "podman image prune -f" || true
 # Sync project files
 echo "==> Syncing project to $REMOTE_HOST:$REMOTE_DIR"
 rsync -avz --exclude='.git' \
+           --exclude='.android/' \
            --exclude='bin/' \
            --exclude='.env' \
            ./ "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/"
@@ -44,6 +56,9 @@ scp deploy/onoffapi-traefik.yml "$REMOTE_USER@$REMOTE_HOST:$TRAEFIK_CONFIG_DIR/o
 echo "==> Rebuilding image"
 ssh "$REMOTE_HOST" "cd $REMOTE_DIR && podman-compose build"
 
+echo "==> Ensuring data directory exists on $REMOTE_HOST"
+ssh "$REMOTE_HOST" "mkdir -p /home/admin/onoffapi-data"
+
 echo "==> Restarting container with host networking"
 ssh "$REMOTE_HOST" "
   podman stop tools-onoffapi_onoffapi_1 2>/dev/null || true
@@ -58,6 +73,8 @@ ssh "$REMOTE_HOST" "
     -e PORT=8082 \
     -v /home/admin/.ssh/id_onoffapi_shutdown_doylestone02:/home/admin/.ssh/id_onoffapi_shutdown_doylestone02:ro \
     -v /home/admin/.ssh/id_bh:/home/admin/.ssh/id_bh:ro \
+    -v /home/admin/.ssh/id_joseph_screentime:/home/admin/.ssh/id_joseph_screentime:ro \
+    -v /home/admin/onoffapi-data:/app/data:Z \
     --restart unless-stopped \
     --health-cmd 'curl -sf http://localhost:8082/health' \
     --health-interval 30s \

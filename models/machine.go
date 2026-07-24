@@ -5,20 +5,33 @@ import (
 	"sync"
 )
 
+// ScreentimeUser is an additional OS-level account on a machine that can be
+// independently targeted for screen-time countdown control (its own SSH
+// login, its own timer state). Only IsAdmin accounts have sudo on the box —
+// non-admin accounts get suspend/poweroff/screen-lock but not the hard
+// "lock account" password-swap trick, since that requires sudo.
+type ScreentimeUser struct {
+	ID         string `json:"id"`
+	SSHUser    string `json:"ssh_user"`
+	SSHKeyPath string `json:"ssh_key_path"`
+	IsAdmin    bool   `json:"is_admin,omitempty"`
+}
+
 // Machine represents a network-accessible machine that can be remotely controlled.
 // JSON tags control how field names appear in API responses (snake_case, matching FastAPI convention).
 type Machine struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	IP            string `json:"ip"`
-	MAC           string `json:"mac"`
-	SSHUser       string `json:"ssh_user,omitempty"`
-	SSHKeyPath    string `json:"ssh_key_path,omitempty"`
-	SSHSudoPw     string `json:"ssh_sudo_pw,omitempty"`
-	Notes         string `json:"notes,omitempty"`
-	HideWake      bool   `json:"hide_wake,omitempty"`
-	HideSuspend   bool   `json:"hide_suspend,omitempty"`
-	HasScreentime bool   `json:"has_screentime,omitempty"`
+	ID              string           `json:"id"`
+	Name            string           `json:"name"`
+	IP              string           `json:"ip"`
+	MAC             string           `json:"mac"`
+	SSHUser         string           `json:"ssh_user,omitempty"`
+	SSHKeyPath      string           `json:"ssh_key_path,omitempty"`
+	SSHSudoPw       string           `json:"ssh_sudo_pw,omitempty"`
+	Notes           string           `json:"notes,omitempty"`
+	HideWake        bool             `json:"hide_wake,omitempty"`
+	HideSuspend     bool             `json:"hide_suspend,omitempty"`
+	HasScreentime   bool             `json:"has_screentime,omitempty"`
+	ScreentimeUsers []ScreentimeUser `json:"screentime_users,omitempty"`
 }
 
 // Store is a simple in-memory data store backed by a map.
@@ -59,6 +72,9 @@ func NewStore() *Store {
 	// One-time setup: generate SSH key on this server, copy public key to joseph's authorized_keys.
 	// ssh-keygen -t ed25519 -f /home/admin/.ssh/id_joseph_screentime -N ""
 	// ssh-copy-id -i /home/admin/.ssh/id_joseph_screentime.pub joseph@192.168.0.102
+	// creatives: second OS account on the same laptop (not an administrator —
+	// no sudo). Reuses the same SSH keypair as joseph; its public half was
+	// additionally appended to creatives' authorized_keys.
 	s.machines["joseph-laptop"] = Machine{
 		ID:            "joseph-laptop",
 		Name:          "joseph-laptop",
@@ -70,6 +86,10 @@ func NewStore() *Store {
 		HideWake:      true,
 		HideSuspend:   true,
 		HasScreentime: true,
+		ScreentimeUsers: []ScreentimeUser{
+			{ID: "joseph", SSHUser: "joseph", SSHKeyPath: "/home/admin/.ssh/id_joseph_screentime", IsAdmin: true},
+			{ID: "creatives", SSHUser: "creatives", SSHKeyPath: "/home/admin/.ssh/id_joseph_screentime", IsAdmin: false},
+		},
 	}
 	return s
 }

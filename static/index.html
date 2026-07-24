@@ -82,6 +82,48 @@
         // Any browser on any device sees the same countdown within 10s of loading.
 
         const screentimePolls = {};
+        const screentimeUsersByMachine = {};
+
+        function getSelectedScreentimeUser(machineId) {
+            const sel = document.getElementById('st-user-' + machineId);
+            return sel ? sel.value : '';
+        }
+
+        function isAdminScreentimeUser(machineId) {
+            const users = screentimeUsersByMachine[machineId] || [];
+            if (!users.length) return true; // single-user machine — always admin
+            const u = users.find(x => x.id === getSelectedScreentimeUser(machineId));
+            return u ? !!u.is_admin : true;
+        }
+
+        function screentimeQS(machineId) {
+            const uid = getSelectedScreentimeUser(machineId);
+            return uid ? ('?user=' + encodeURIComponent(uid)) : '';
+        }
+
+        // Enables/disables the lock-account checkbox and UNLOCK ACCOUNT button
+        // based on whether the selected screentime user has sudo — non-admin
+        // accounts (e.g. creatives) can't have their password swapped to lock
+        // them out, since chpasswd requires sudo they don't have.
+        function updateScreentimeUserUI(machineId) {
+            const admin = isAdminScreentimeUser(machineId);
+            const lockCb = document.getElementById('st-lock-' + machineId);
+            const unlockBtn = document.getElementById('st-unlock-' + machineId);
+            if (lockCb) {
+                lockCb.disabled = !admin;
+                if (!admin) lockCb.checked = false;
+            }
+            toggleRestore(machineId);
+            if (unlockBtn) {
+                unlockBtn.disabled = !admin;
+                unlockBtn.title = admin ? '' : 'Not available — this account has no sudo access';
+            }
+        }
+
+        function switchScreentimeUser(machineId) {
+            updateScreentimeUserUI(machineId);
+            startScreentimePoll(machineId);
+        }
 
         function setScreentimeActive(machineId, active, lockAccount = false) {
             const display   = document.getElementById('st-display-'  + machineId);
@@ -116,7 +158,7 @@
 
             async function sync() {
                 try {
-                    const res = await fetch('./machines/' + machineId + '/screentime', {
+                    const res = await fetch('./machines/' + machineId + '/screentime' + screentimeQS(machineId), {
                         headers: { 'X-API-Key': apiKey }
                     });
                     if (!res.ok) return;
@@ -178,19 +220,31 @@
                         <span class="state-indicator"></span>
                         <span class="status" id="status-${m.id}"></span>
                     </div>
-                    ${m.has_screentime ? screentimePanel(m.id) : ''}
+                    ${m.has_screentime ? screentimePanel(m.id, m.screentime_users) : ''}
                 </div>
             `).join('');
             machines.forEach(m => {
                 pollState(m.id);
-                if (m.has_screentime) startScreentimePoll(m.id);
+                screentimeUsersByMachine[m.id] = m.screentime_users || [];
+                if (m.has_screentime) {
+                    updateScreentimeUserUI(m.id);
+                    startScreentimePoll(m.id);
+                }
             });
         }
 
-        function screentimePanel(id) {
+        function screentimePanel(id, users) {
+            const userSelect = (users && users.length > 1) ? `
+                <div class="screentime-user-select">
+                    <label for="st-user-${id}">User:</label>
+                    <select id="st-user-${id}" onchange="switchScreentimeUser('${id}')">
+                        ${users.map(u => `<option value="${u.id}">${u.id}</option>`).join('')}
+                    </select>
+                </div>` : '';
             return `
             <div class="screentime-panel">
                 <h3>Screen Time</h3>
+                ${userSelect}
 
                 <div id="st-display-${id}" class="st-timer-display" style="display:none">
                     <span class="st-countdown" id="st-countdown-${id}">00:00:00</span>
@@ -251,7 +305,7 @@
             if (lockAccount && restoreAfter) body.restore_after = restoreAfter;
 
             try {
-                const res = await fetch('./machines/' + machineId + '/screentime', {
+                const res = await fetch('./machines/' + machineId + '/screentime' + screentimeQS(machineId), {
                     method: 'POST',
                     headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
@@ -281,7 +335,7 @@
             const statusEl = document.getElementById('st-status-' + machineId);
             statusEl.textContent = 'Stopping…';
             try {
-                const res = await fetch('./machines/' + machineId + '/screentime', {
+                const res = await fetch('./machines/' + machineId + '/screentime' + screentimeQS(machineId), {
                     method: 'DELETE',
                     headers: { 'X-API-Key': apiKey }
                 });
@@ -300,11 +354,11 @@
             const statusEl = document.getElementById('st-status-' + machineId);
             statusEl.textContent = 'Unlocking…';
             try {
-                const res = await fetch('./machines/' + machineId + '/screentime/unlock', {
+                const res = await fetch('./machines/' + machineId + '/screentime/unlock' + screentimeQS(machineId), {
                     method: 'POST',
                     headers: { 'X-API-Key': apiKey }
                 });
-                statusEl.textContent = res.ok ? 'Account unlocked — Joseph can log in' : 'Error ' + res.status;
+                statusEl.textContent = res.ok ? 'Account unlocked' : 'Error ' + res.status;
             } catch (e) {
                 statusEl.textContent = 'Network error';
             }

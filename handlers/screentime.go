@@ -13,8 +13,48 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jonwhittlestone/tools-onoffapi/models"
 	"golang.org/x/crypto/ssh"
 )
+
+// resolveScreentimeUser maps a `?user=` query value to the OS-level
+// credentials it should act as. "" (or a value matching the machine's
+// top-level SSHUser) resolves to the machine's own SSH credentials, treated
+// as the admin account — this keeps every pre-existing single-user machine
+// working unchanged. Any other value must match one of the machine's
+// registered ScreentimeUsers.
+func resolveScreentimeUser(m models.Machine, userID string) (models.ScreentimeUser, bool) {
+	if userID == "" || userID == m.SSHUser {
+		// Machines with no SSH credentials at all still resolve here (empty
+		// SSHUser/SSHKeyPath) so the caller's own credential check reports the
+		// right "missing SSH credentials" error instead of "unknown user".
+		return models.ScreentimeUser{
+			ID:         m.SSHUser,
+			SSHUser:    m.SSHUser,
+			SSHKeyPath: m.SSHKeyPath,
+			IsAdmin:    true,
+		}, true
+	}
+	for _, su := range m.ScreentimeUsers {
+		if su.ID == userID {
+			return su, true
+		}
+	}
+	return models.ScreentimeUser{}, false
+}
+
+// screentimeStoreKey namespaces timer state per (machine, OS user) so two
+// screentime profiles on the same machine don't collide.
+func screentimeStoreKey(machineID string, su models.ScreentimeUser) string {
+	return machineID + ":" + su.ID
+}
+
+// screentimeStatePath is the /tmp state file screentime-timer.py writes,
+// namespaced per OS user so concurrent profiles on one machine don't clobber
+// each other's state.
+func screentimeStatePath(su models.ScreentimeUser) string {
+	return "/tmp/screentime-state-" + su.SSHUser
+}
 
 // screentimeStatus holds the server-side record of a running timer.
 // Stored when a timer starts; cleared when it stops or expires.
@@ -61,7 +101,7 @@ type screentimeStore struct {
 	timers      map[string]screentimeStatus
 	stateFile   string
 	checkMu     sync.Mutex
-	lastCheck   map[string]time.Time      // last liveness check per machine
+	lastCheck   map[string]time.Time        // last liveness check per machine
 	remoteCache map[string]remoteStateCache // last direct SSH read per machine
 }
 
@@ -208,25 +248,32 @@ func (h *MachineHandler) getScreentime(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "machine not found")
 		return
 	}
+	su, ok := resolveScreentimeUser(m, r.URL.Query().Get("user"))
+	if !ok {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown screentime user %q", r.URL.Query().Get("user")))
+		return
+	}
+	storeKey := screentimeStoreKey(id, su)
+	statePath := screentimeStatePath(su)
 
-	st, active := h.screentimeStore.get(id)
+	st, active := h.screentimeStore.get(storeKey)
 
 	if !active {
 		// No API-recorded timer. Try reading the state file on the target machine
 		// so timers started via SSH are also visible in the frontend.
-		if m.SSHUser == "" || m.SSHKeyPath == "" {
+		if su.SSHUser == "" || su.SSHKeyPath == "" {
 			writeJSON(w, http.StatusOK, map[string]bool{"active": false})
 			return
 		}
-		entry, fresh := h.screentimeStore.getCachedRemote(id)
+		entry, fresh := h.screentimeStore.getCachedRemote(storeKey)
 		if !fresh {
-			remaining, running, err := screentimeReadRemoteState(m.SSHUser, m.SSHKeyPath, m.IP)
+			remaining, running, err := screentimeReadRemoteState(su.SSHUser, su.SSHKeyPath, m.IP, statePath)
 			entry = remoteStateCache{checkedAt: time.Now(), remainingSecs: remaining, running: running}
 			if err != nil {
 				// SSH failed — can't determine state, assume inactive
 				entry.running = false
 			}
-			h.screentimeStore.setCachedRemote(id, entry)
+			h.screentimeStore.setCachedRemote(storeKey, entry)
 		}
 		if entry.running && entry.remainingSecs > 0 {
 			// Adjust for time elapsed since the cache was populated so the
@@ -249,7 +296,7 @@ func (h *MachineHandler) getScreentime(w http.ResponseWriter, r *http.Request) {
 
 	remainingSecs := st.totalSecs - int(time.Since(st.startedAt).Seconds())
 	if remainingSecs <= 0 {
-		h.screentimeStore.clear(id)
+		h.screentimeStore.clear(storeKey)
 		writeJSON(w, http.StatusOK, map[string]bool{"active": false})
 		return
 	}
@@ -260,10 +307,10 @@ func (h *MachineHandler) getScreentime(w http.ResponseWriter, r *http.Request) {
 	// to write /tmp/screentime-state after forking, so checking too early gives
 	// false "not running" results.
 	pastGrace := time.Since(st.startedAt) > liveCheckGrace
-	if pastGrace && m.SSHUser != "" && m.SSHKeyPath != "" && h.screentimeStore.checkAndMark(id) {
-		running, err := screentimeIsRunning(m.SSHUser, m.SSHKeyPath, m.IP)
+	if pastGrace && su.SSHUser != "" && su.SSHKeyPath != "" && h.screentimeStore.checkAndMark(storeKey) {
+		running, err := screentimeIsRunning(su.SSHUser, su.SSHKeyPath, m.IP, statePath)
 		if err == nil && !running {
-			h.screentimeStore.clear(id)
+			h.screentimeStore.clear(storeKey)
 			writeJSON(w, http.StatusOK, map[string]bool{"active": false})
 			return
 		}
@@ -286,7 +333,12 @@ func (h *MachineHandler) startScreentime(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusNotFound, "machine not found")
 		return
 	}
-	if m.SSHUser == "" || m.SSHKeyPath == "" {
+	su, ok := resolveScreentimeUser(m, r.URL.Query().Get("user"))
+	if !ok {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown screentime user %q", r.URL.Query().Get("user")))
+		return
+	}
+	if su.SSHUser == "" || su.SSHKeyPath == "" {
 		writeError(w, http.StatusUnprocessableEntity, "machine has no SSH credentials")
 		return
 	}
@@ -314,20 +366,26 @@ func (h *MachineHandler) startScreentime(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Default lock_account to true — omitting it from the request still locks.
-	lockAccount := true
+	// Default lock_account to true for admin accounts (unchanged behavior);
+	// non-admin accounts (e.g. creatives) have no sudo, so the hard lockout
+	// isn't available to them — default to false, and reject if requested.
+	lockAccount := su.IsAdmin
 	if req.LockAccount != nil {
+		if *req.LockAccount && !su.IsAdmin {
+			writeError(w, http.StatusUnprocessableEntity, fmt.Sprintf("account lockout is not available for %q — no sudo access on this machine", su.ID))
+			return
+		}
 		lockAccount = *req.LockAccount
 	}
 
 	cmd := buildStartCmd(req.Duration, req.Action, lockAccount, req.RestoreAfter)
 	startedAt := time.Now()
-	if err := screentimeSSH(m.SSHUser, m.SSHKeyPath, m.IP, cmd); err != nil {
+	if err := screentimeSSH(su.SSHUser, su.SSHKeyPath, m.IP, cmd); err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("command failed: %v", err))
 		return
 	}
 
-	h.screentimeStore.set(id, screentimeStatus{
+	h.screentimeStore.set(screentimeStoreKey(id, su), screentimeStatus{
 		startedAt:   startedAt,
 		totalSecs:   totalSecs,
 		action:      req.Action,
@@ -351,17 +409,22 @@ func (h *MachineHandler) stopScreentime(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusNotFound, "machine not found")
 		return
 	}
-	if m.SSHUser == "" || m.SSHKeyPath == "" {
+	su, ok := resolveScreentimeUser(m, r.URL.Query().Get("user"))
+	if !ok {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown screentime user %q", r.URL.Query().Get("user")))
+		return
+	}
+	if su.SSHUser == "" || su.SSHKeyPath == "" {
 		writeError(w, http.StatusUnprocessableEntity, "machine has no SSH credentials")
 		return
 	}
 
-	if err := screentimeSSH(m.SSHUser, m.SSHKeyPath, m.IP, "python3 ~/screentime-timer.py --stop"); err != nil {
+	if err := screentimeSSH(su.SSHUser, su.SSHKeyPath, m.IP, "python3 ~/screentime-timer.py --stop"); err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("command failed: %v", err))
 		return
 	}
 
-	h.screentimeStore.clear(id)
+	h.screentimeStore.clear(screentimeStoreKey(id, su))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "timer stopped"})
 }
 
@@ -373,12 +436,21 @@ func (h *MachineHandler) unlockScreentime(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusNotFound, "machine not found")
 		return
 	}
-	if m.SSHUser == "" || m.SSHKeyPath == "" {
+	su, ok := resolveScreentimeUser(m, r.URL.Query().Get("user"))
+	if !ok {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown screentime user %q", r.URL.Query().Get("user")))
+		return
+	}
+	if su.SSHUser == "" || su.SSHKeyPath == "" {
 		writeError(w, http.StatusUnprocessableEntity, "machine has no SSH credentials")
 		return
 	}
+	if !su.IsAdmin {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Sprintf("account lockout is not available for %q — nothing to unlock", su.ID))
+		return
+	}
 
-	if err := screentimeSSH(m.SSHUser, m.SSHKeyPath, m.IP, "python3 ~/screentime-timer.py --unlock"); err != nil {
+	if err := screentimeSSH(su.SSHUser, su.SSHKeyPath, m.IP, "python3 ~/screentime-timer.py --unlock"); err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("command failed: %v", err))
 		return
 	}
@@ -434,8 +506,8 @@ func buildStartCmd(duration, action string, lockAccount bool, restoreAfter strin
 // screentimeIsRunning checks whether the timer process is still active by testing
 // for its state file. Returns (true, nil) if running, (false, nil) if cleanly
 // stopped, (false, err) if SSH itself failed (unknown state — don't clear).
-func screentimeIsRunning(user, keyPath, ip string) (bool, error) {
-	err := screentimeSSH(user, keyPath, ip, "test -f /tmp/screentime-state")
+func screentimeIsRunning(user, keyPath, ip, statePath string) (bool, error) {
+	err := screentimeSSH(user, keyPath, ip, "test -f "+statePath)
 	if err == nil {
 		return true, nil
 	}
@@ -449,8 +521,8 @@ func screentimeIsRunning(user, keyPath, ip string) (bool, error) {
 // screentimeReadRemoteState SSHes to the target machine, reads /tmp/screentime-state,
 // and parses the remaining seconds from "display HH:MM:SS ..." lines.
 // Returns (remainingSecs, running, err).
-func screentimeReadRemoteState(user, keyPath, ip string) (int, bool, error) {
-	out, err := screentimeSSHOutput(user, keyPath, ip, "cat /tmp/screentime-state 2>/dev/null || true")
+func screentimeReadRemoteState(user, keyPath, ip, statePath string) (int, bool, error) {
+	out, err := screentimeSSHOutput(user, keyPath, ip, "cat "+statePath+" 2>/dev/null || true")
 	if err != nil {
 		return 0, false, err
 	}

@@ -46,6 +46,8 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .st-lock-badge { font-size: 0.8rem; padding: 0.15rem 0.5rem; border-radius: 4px; background: #f59e0b22; color: #b45309; }
 [data-theme="dark"] .st-lock-badge { background: #f59e0b22; color: #fbbf24; }
 
+.screentime-user-select { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; font-size: 0.9rem; }
+.screentime-user-select select { padding: 0.3rem 0.5rem; background: var(--bg); color: var(--fg); border: 1px solid var(--card-border); border-radius: 4px; }
 .screentime-presets { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
 .screentime-presets span { font-size: 0.85rem; color: var(--muted); }
 .preset-btn { padding: 0.25rem 0.75rem; font-size: 0.9rem; margin: 0; }

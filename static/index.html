@@ -83,10 +83,12 @@
 
         const screentimePolls = {};
         const screentimeUsersByMachine = {};
+        const selectedScreentimeUser = {};
 
         function getSelectedScreentimeUser(machineId) {
-            const sel = document.getElementById('st-user-' + machineId);
-            return sel ? sel.value : '';
+            if (selectedScreentimeUser[machineId]) return selectedScreentimeUser[machineId];
+            const users = screentimeUsersByMachine[machineId] || [];
+            return users.length ? users[0].id : '';
         }
 
         function isAdminScreentimeUser(machineId) {
@@ -120,7 +122,14 @@
             }
         }
 
-        function switchScreentimeUser(machineId) {
+        function switchScreentimeUser(machineId, userId) {
+            selectedScreentimeUser[machineId] = userId;
+            const panel = document.getElementById('st-display-' + machineId)?.closest('.screentime-panel');
+            if (panel) {
+                panel.querySelectorAll('.screentime-tab').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.user === userId);
+                });
+            }
             updateScreentimeUserUI(machineId);
             startScreentimePoll(machineId);
         }
@@ -227,6 +236,9 @@
                 pollState(m.id);
                 screentimeUsersByMachine[m.id] = m.screentime_users || [];
                 if (m.has_screentime) {
+                    if (!selectedScreentimeUser[m.id] && screentimeUsersByMachine[m.id].length) {
+                        selectedScreentimeUser[m.id] = screentimeUsersByMachine[m.id][0].id;
+                    }
                     updateScreentimeUserUI(m.id);
                     startScreentimePoll(m.id);
                 }
@@ -234,17 +246,14 @@
         }
 
         function screentimePanel(id, users) {
-            const userSelect = (users && users.length > 1) ? `
-                <div class="screentime-user-select">
-                    <label for="st-user-${id}">User:</label>
-                    <select id="st-user-${id}" onchange="switchScreentimeUser('${id}')">
-                        ${users.map(u => `<option value="${u.id}">${u.id}</option>`).join('')}
-                    </select>
+            const userTabs = (users && users.length > 1) ? `
+                <div class="screentime-tabs" role="tablist">
+                    ${users.map((u, i) => `<button type="button" class="screentime-tab${i === 0 ? ' active' : ''}" data-user="${u.id}" onclick="switchScreentimeUser('${id}','${u.id}')">${u.id}</button>`).join('')}
                 </div>` : '';
             return `
             <div class="screentime-panel">
                 <h3>Screen Time</h3>
-                ${userSelect}
+                ${userTabs}
 
                 <div id="st-display-${id}" class="st-timer-display" style="display:none">
                     <span class="st-countdown" id="st-countdown-${id}">00:00:00</span>

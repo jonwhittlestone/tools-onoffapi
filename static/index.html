@@ -283,6 +283,7 @@
                     <button id="st-start-${id}" onclick="startScreentime('${id}')">▶ START TIMER</button>
                     <button id="st-stop-${id}" onclick="stopScreentime('${id}')" disabled>■ STOP TIMER</button>
                     <button id="st-unlock-${id}" class="unlock-btn" onclick="unlockScreentime('${id}')">🔓 UNLOCK ACCOUNT</button>
+                    <button id="st-unlockscreen-${id}" class="unlock-btn" onclick="unlockScreen('${id}')">🔓 UNLOCK SCREEN</button>
                 </div>
                 <div class="password-inputs">
                     <input type="password" id="st-newpw-${id}" placeholder="New password">
@@ -368,6 +369,22 @@
                     headers: { 'X-API-Key': apiKey }
                 });
                 statusEl.textContent = res.ok ? 'Account unlocked' : 'Error ' + res.status;
+            } catch (e) {
+                statusEl.textContent = 'Network error';
+            }
+        }
+
+        // Dismisses the GNOME lock screen remotely without ever typing the
+        // password — so you don't have to reveal it to whoever's asking.
+        async function unlockScreen(machineId) {
+            const statusEl = document.getElementById('st-status-' + machineId);
+            statusEl.textContent = 'Unlocking screen…';
+            try {
+                const res = await fetch('./machines/' + machineId + '/unlock-screen', {
+                    method: 'POST',
+                    headers: { 'X-API-Key': apiKey }
+                });
+                statusEl.textContent = res.ok ? 'Screen unlocked' : 'Error ' + res.status;
             } catch (e) {
                 statusEl.textContent = 'Network error';
             }

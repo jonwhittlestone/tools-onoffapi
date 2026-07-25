@@ -156,7 +156,7 @@
             if (startBtn)  startBtn.disabled  = active;
             if (stopBtn)   stopBtn.disabled   = !active;
             if (durInput)  durInput.disabled  = active;
-            if (lockCb)    lockCb.disabled    = active;
+            if (lockCb)    lockCb.disabled    = active || !isAdminScreentimeUser(machineId);
             if (restInput) restInput.disabled = active;
 
             const panel = display && display.closest('.screentime-panel');

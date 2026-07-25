@@ -74,6 +74,7 @@ ssh "$REMOTE_HOST" "
     -v /home/admin/.ssh/id_onoffapi_shutdown_doylestone02:/home/admin/.ssh/id_onoffapi_shutdown_doylestone02:ro \
     -v /home/admin/.ssh/id_bh:/home/admin/.ssh/id_bh:ro \
     -v /home/admin/.ssh/id_joseph_screentime:/home/admin/.ssh/id_joseph_screentime:ro \
+    -v /home/admin/.ssh/id_maker440_screentime:/home/admin/.ssh/id_maker440_screentime:ro \
     -v /home/admin/onoffapi-data:/app/data:Z \
     --restart unless-stopped \
     --health-cmd 'curl -sf http://localhost:8082/health' \

@@ -88,6 +88,7 @@
 
         const screentimePolls = {};
         const screentimeUsersByMachine = {};
+        const screentimeIsAdminByMachine = {};
         const selectedScreentimeUser = {};
 
         function getSelectedScreentimeUser(machineId) {
@@ -98,7 +99,10 @@
 
         function isAdminScreentimeUser(machineId) {
             const users = screentimeUsersByMachine[machineId] || [];
-            if (!users.length) return true; // single-user machine — always admin
+            // Single-user machine — admin status comes from the machine's own
+            // is_admin flag (e.g. doylestone440's maker has no sudo there,
+            // unlike joseph-laptop's joseph), not assumed true.
+            if (!users.length) return !!screentimeIsAdminByMachine[machineId];
             const u = users.find(x => x.id === getSelectedScreentimeUser(machineId));
             return u ? !!u.is_admin : true;
         }
@@ -152,7 +156,7 @@
             if (startBtn)  startBtn.disabled  = active;
             if (stopBtn)   stopBtn.disabled   = !active;
             if (durInput)  durInput.disabled  = active;
-            if (lockCb)    lockCb.disabled    = active;
+            if (lockCb)    lockCb.disabled    = active || !isAdminScreentimeUser(machineId);
             if (restInput) restInput.disabled = active;
 
             const panel = display && display.closest('.screentime-panel');
@@ -240,6 +244,7 @@
             machines.forEach(m => {
                 pollState(m.id);
                 screentimeUsersByMachine[m.id] = m.screentime_users || [];
+                screentimeIsAdminByMachine[m.id] = !!m.is_admin;
                 if (m.has_screentime) {
                     if (!selectedScreentimeUser[m.id] && screentimeUsersByMachine[m.id].length) {
                         selectedScreentimeUser[m.id] = screentimeUsersByMachine[m.id][0].id;

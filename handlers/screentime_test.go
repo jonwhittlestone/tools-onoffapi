@@ -245,6 +245,74 @@ func TestStartScreentime_NonAdminDefaultsNoLock(t *testing.T) {
 	}
 }
 
+// A machine with no ScreentimeUsers list at all (the common case — just
+// SSHUser/SSHKeyPath) must not be assumed admin by default. doylestone440's
+// SSHUser is "maker", who has no sudo there, unlike joseph-laptop's SSHUser
+// "joseph", who does.
+func TestStartScreentime_DefaultUserNonAdminLockAccountRejected(t *testing.T) {
+	store := models.NewStore()
+	store.Create(models.Machine{
+		ID: "multi8", Name: "Multi8", IP: "192.168.0.99", MAC: "aa:bb:cc:dd:ee:ff",
+		SSHUser: "maker", SSHKeyPath: "/some/key", IsAdmin: false,
+	})
+	h := NewMachineHandler(store)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	lockTrue := true
+	body, _ := json.Marshal(screentimeStartRequest{Duration: "30m", LockAccount: &lockTrue})
+	req := httptest.NewRequest("POST", "/machines/multi8/screentime", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestStartScreentime_DefaultUserNonAdminOmittedDefaultsNoLock(t *testing.T) {
+	store := models.NewStore()
+	store.Create(models.Machine{
+		ID: "multi9", Name: "Multi9", IP: "192.168.0.99", MAC: "aa:bb:cc:dd:ee:ff",
+		SSHUser: "maker", SSHKeyPath: "/nonexistent/id_rsa", IsAdmin: false,
+	})
+	h := NewMachineHandler(store)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	body, _ := json.Marshal(screentimeStartRequest{Duration: "30m"})
+	req := httptest.NewRequest("POST", "/machines/multi9/screentime", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	// lock_account omitted should default to false for a non-admin default
+	// user, reaching the SSH stage (which fails on the missing key file)
+	// instead of being silently forced to true.
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 (SSH key failure), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestStartScreentime_DefaultUserAdminStillDefaultsLock(t *testing.T) {
+	store := models.NewStore()
+	store.Create(models.Machine{
+		ID: "multi10", Name: "Multi10", IP: "192.168.0.99", MAC: "aa:bb:cc:dd:ee:ff",
+		SSHUser: "joseph", SSHKeyPath: "/nonexistent/id_rsa", IsAdmin: true,
+	})
+	h := NewMachineHandler(store)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	body, _ := json.Marshal(screentimeStartRequest{Duration: "30m"})
+	req := httptest.NewRequest("POST", "/machines/multi10/screentime", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	// Admin default user: lock_account omitted still defaults to true
+	// (pre-existing behavior, unaffected by this fix) and reaches the SSH
+	// stage same as before.
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 (SSH key failure), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestUnlockScreentime_NonAdminRejected(t *testing.T) {
 	store := models.NewStore()
 	store.Create(models.Machine{

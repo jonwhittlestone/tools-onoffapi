@@ -20,17 +20,21 @@ type ScreentimeUser struct {
 // Machine represents a network-accessible machine that can be remotely controlled.
 // JSON tags control how field names appear in API responses (snake_case, matching FastAPI convention).
 type Machine struct {
-	ID              string           `json:"id"`
-	Name            string           `json:"name"`
-	IP              string           `json:"ip"`
-	MAC             string           `json:"mac"`
-	SSHUser         string           `json:"ssh_user,omitempty"`
-	SSHKeyPath      string           `json:"ssh_key_path,omitempty"`
-	SSHSudoPw       string           `json:"ssh_sudo_pw,omitempty"`
-	Notes           string           `json:"notes,omitempty"`
-	HideWake        bool             `json:"hide_wake,omitempty"`
-	HideSuspend     bool             `json:"hide_suspend,omitempty"`
-	HasScreentime   bool             `json:"has_screentime,omitempty"`
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	IP            string `json:"ip"`
+	MAC           string `json:"mac"`
+	SSHUser       string `json:"ssh_user,omitempty"`
+	SSHKeyPath    string `json:"ssh_key_path,omitempty"`
+	SSHSudoPw     string `json:"ssh_sudo_pw,omitempty"`
+	Notes         string `json:"notes,omitempty"`
+	HideWake      bool   `json:"hide_wake,omitempty"`
+	HideSuspend   bool   `json:"hide_suspend,omitempty"`
+	HasScreentime bool   `json:"has_screentime,omitempty"`
+	// IsAdmin says whether SSHUser has sudo on this machine — determines
+	// whether the account-lockout trick (self-chpasswd) is available for the
+	// default screentime profile (used when ScreentimeUsers is empty/unset).
+	IsAdmin         bool             `json:"is_admin,omitempty"`
 	ScreentimeUsers []ScreentimeUser `json:"screentime_users,omitempty"`
 }
 
@@ -83,6 +87,29 @@ func NewStore() *Store {
 		HideWake:      true,
 		HideSuspend:   true,
 		HasScreentime: true,
+		IsAdmin:       true, // joseph has sudo on his own laptop
+	}
+	// doylestone440: Ubuntu desktop (Lenovo 440), kid dev machine. SSHUser is
+	// `maker` — unlike joseph, maker is NOT in the sudo group by design (see
+	// the doylestone440 setup doc, Part 4), so SSHSudoPw here can't actually
+	// authenticate chpasswd. Screentime timer/suspend/poweroff/screen-lock
+	// (none need sudo) work the same as joseph-laptop; SET PASSWORD and
+	// UNLOCK ACCOUNT will fail at the SSH layer for this machine.
+	// One-time setup: generate SSH key on this server, copy public key to maker's authorized_keys.
+	// ssh-keygen -t ed25519 -f /home/admin/.ssh/id_maker440_screentime -N ""
+	// ssh-copy-id -i /home/admin/.ssh/id_maker440_screentime.pub maker@192.168.0.220
+	s.machines["doylestone440"] = Machine{
+		ID:            "doylestone440",
+		Name:          "doylestone440",
+		IP:            "192.168.0.220",
+		SSHUser:       "maker",
+		SSHKeyPath:    "/home/admin/.ssh/id_maker440_screentime",
+		SSHSudoPw:     os.Getenv("MAKER440_SUDO_PW"),
+		Notes:         "maker's Ubuntu dev/Minecraft machine (Lenovo 440). Screen time managed via screentime-timer.py.",
+		HideWake:      true,
+		HideSuspend:   true,
+		HasScreentime: true,
+		IsAdmin:       false, // maker has no sudo on doylestone440 — explicit, not just the zero value
 	}
 	return s
 }

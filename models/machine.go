@@ -72,9 +72,6 @@ func NewStore() *Store {
 	// One-time setup: generate SSH key on this server, copy public key to joseph's authorized_keys.
 	// ssh-keygen -t ed25519 -f /home/admin/.ssh/id_joseph_screentime -N ""
 	// ssh-copy-id -i /home/admin/.ssh/id_joseph_screentime.pub joseph@192.168.0.102
-	// maker: second OS account on the same laptop (not an administrator —
-	// no sudo). Reuses the same SSH keypair as joseph; its public half was
-	// additionally appended to maker's authorized_keys.
 	s.machines["joseph-laptop"] = Machine{
 		ID:            "joseph-laptop",
 		Name:          "joseph-laptop",
@@ -86,10 +83,6 @@ func NewStore() *Store {
 		HideWake:      true,
 		HideSuspend:   true,
 		HasScreentime: true,
-		ScreentimeUsers: []ScreentimeUser{
-			{ID: "joseph", SSHUser: "joseph", SSHKeyPath: "/home/admin/.ssh/id_joseph_screentime", IsAdmin: true},
-			{ID: "maker", SSHUser: "maker", SSHKeyPath: "/home/admin/.ssh/id_joseph_screentime", IsAdmin: false},
-		},
 	}
 	return s
 }

@@ -48,6 +48,11 @@
             if (wakeBtn) wakeBtn.disabled = reachable;
             if (suspendBtn) suspendBtn.disabled = !reachable;
             if (shutdownBtn) shutdownBtn.disabled = !reachable;
+            // Every screentime action (including UNLOCK SCREEN) needs SSH to a
+            // running desktop session, so the whole panel is pointless — and
+            // its buttons would just fail — while the machine is offline.
+            const screentimePanel = card.querySelector('.screentime-panel');
+            if (screentimePanel) screentimePanel.style.display = reachable ? '' : 'none';
             const indicator = card.querySelector('.state-indicator');
             if (reachable) {
                 indicator.textContent = '🟢 online';
@@ -384,7 +389,7 @@
                     method: 'POST',
                     headers: { 'X-API-Key': apiKey }
                 });
-                statusEl.textContent = res.ok ? 'Screen unlocked' : 'Error ' + res.status;
+                statusEl.textContent = res.ok ? '🔓 Screen unlocked' : 'Error ' + res.status;
             } catch (e) {
                 statusEl.textContent = 'Network error';
             }

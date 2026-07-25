@@ -287,8 +287,10 @@
                 <div class="screentime-actions">
                     <button id="st-start-${id}" onclick="startScreentime('${id}')">▶ START TIMER</button>
                     <button id="st-stop-${id}" onclick="stopScreentime('${id}')" disabled>■ STOP TIMER</button>
-                    <button id="st-unlock-${id}" class="unlock-btn" onclick="unlockScreentime('${id}')">🔓 UNLOCK ACCOUNT</button>
+                </div>
+                <div class="screentime-actions">
                     <button id="st-unlockscreen-${id}" class="unlock-btn" onclick="unlockScreen('${id}')">🔓 UNLOCK SCREEN</button>
+                    <button id="st-unlock-${id}" class="unlock-btn" onclick="unlockScreentime('${id}')">🔓 UNLOCK ACCOUNT</button>
                 </div>
                 <div class="password-inputs">
                     <input type="password" id="st-newpw-${id}" placeholder="New password">

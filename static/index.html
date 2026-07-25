@@ -105,7 +105,7 @@
 
         // Enables/disables the lock-account checkbox and UNLOCK ACCOUNT button
         // based on whether the selected screentime user has sudo — non-admin
-        // accounts (e.g. creatives) can't have their password swapped to lock
+        // accounts (e.g. maker) can't have their password swapped to lock
         // them out, since chpasswd requires sudo they don't have.
         function updateScreentimeUserUI(machineId) {
             const admin = isAdminScreentimeUser(machineId);

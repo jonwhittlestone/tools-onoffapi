@@ -203,7 +203,7 @@ func TestStartScreentime_NonAdminLockAccountRejected(t *testing.T) {
 		ID: "multi3", Name: "Multi3", IP: "192.168.0.99", MAC: "aa:bb:cc:dd:ee:ff",
 		SSHUser: "joseph", SSHKeyPath: "/some/key",
 		ScreentimeUsers: []models.ScreentimeUser{
-			{ID: "creatives", SSHUser: "creatives", SSHKeyPath: "/some/other/key"},
+			{ID: "maker", SSHUser: "maker", SSHKeyPath: "/some/other/key"},
 		},
 	})
 	h := NewMachineHandler(store)
@@ -212,7 +212,7 @@ func TestStartScreentime_NonAdminLockAccountRejected(t *testing.T) {
 
 	lockTrue := true
 	body, _ := json.Marshal(screentimeStartRequest{Duration: "30m", LockAccount: &lockTrue})
-	req := httptest.NewRequest("POST", "/machines/multi3/screentime?user=creatives", bytes.NewReader(body))
+	req := httptest.NewRequest("POST", "/machines/multi3/screentime?user=maker", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusUnprocessableEntity {
@@ -226,7 +226,7 @@ func TestStartScreentime_NonAdminDefaultsNoLock(t *testing.T) {
 		ID: "multi4", Name: "Multi4", IP: "192.168.0.99", MAC: "aa:bb:cc:dd:ee:ff",
 		SSHUser: "joseph", SSHKeyPath: "/some/key",
 		ScreentimeUsers: []models.ScreentimeUser{
-			{ID: "creatives", SSHUser: "creatives", SSHKeyPath: "/nonexistent/id_rsa"},
+			{ID: "maker", SSHUser: "maker", SSHKeyPath: "/nonexistent/id_rsa"},
 		},
 	})
 	h := NewMachineHandler(store)
@@ -234,12 +234,12 @@ func TestStartScreentime_NonAdminDefaultsNoLock(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	body, _ := json.Marshal(screentimeStartRequest{Duration: "30m"})
-	req := httptest.NewRequest("POST", "/machines/multi4/screentime?user=creatives", bytes.NewReader(body))
+	req := httptest.NewRequest("POST", "/machines/multi4/screentime?user=maker", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	// Validation should pass (no lock_account requested) and reach the SSH
 	// stage, which fails because the key file doesn't exist — this proves
-	// creatives was resolved to her own credentials, not rejected outright.
+	// maker was resolved to her own credentials, not rejected outright.
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500 (SSH key failure), got %d: %s", w.Code, w.Body.String())
 	}
@@ -251,14 +251,14 @@ func TestUnlockScreentime_NonAdminRejected(t *testing.T) {
 		ID: "multi5", Name: "Multi5", IP: "192.168.0.99", MAC: "aa:bb:cc:dd:ee:ff",
 		SSHUser: "joseph", SSHKeyPath: "/some/key",
 		ScreentimeUsers: []models.ScreentimeUser{
-			{ID: "creatives", SSHUser: "creatives", SSHKeyPath: "/some/other/key"},
+			{ID: "maker", SSHUser: "maker", SSHKeyPath: "/some/other/key"},
 		},
 	})
 	h := NewMachineHandler(store)
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 
-	req := httptest.NewRequest("POST", "/machines/multi5/screentime/unlock?user=creatives", nil)
+	req := httptest.NewRequest("POST", "/machines/multi5/screentime/unlock?user=maker", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusUnprocessableEntity {
@@ -290,14 +290,14 @@ func TestGetScreentime_NonAdminUserDefaultInactive(t *testing.T) {
 		ID: "multi7", Name: "Multi7", IP: "192.168.0.99", MAC: "aa:bb:cc:dd:ee:ff",
 		SSHUser: "joseph", SSHKeyPath: "/some/key",
 		ScreentimeUsers: []models.ScreentimeUser{
-			{ID: "creatives", SSHUser: "creatives", SSHKeyPath: ""},
+			{ID: "maker", SSHUser: "maker", SSHKeyPath: ""},
 		},
 	})
 	h := NewMachineHandler(store)
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 
-	req := httptest.NewRequest("GET", "/machines/multi7/screentime?user=creatives", nil)
+	req := httptest.NewRequest("GET", "/machines/multi7/screentime?user=maker", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {

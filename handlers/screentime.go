@@ -367,7 +367,7 @@ func (h *MachineHandler) startScreentime(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Default lock_account to true for admin accounts (unchanged behavior);
-	// non-admin accounts (e.g. creatives) have no sudo, so the hard lockout
+	// non-admin accounts (e.g. maker) have no sudo, so the hard lockout
 	// isn't available to them — default to false, and reject if requested.
 	lockAccount := su.IsAdmin
 	if req.LockAccount != nil {

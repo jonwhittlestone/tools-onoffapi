@@ -2,6 +2,8 @@
 
 A Go REST API for remote power control of home machines. Hosted on `doylestonex` (Raspberry Pi) behind nginx, accessible at `zapto.howapped.org`.
 
+**Related repository:** the GNOME Shell extension + `screentime-timer.py` script that render the on-screen countdown overlay and enforce the screen time limits this API triggers remotely (`joseph-laptop`, `doylestone440`) live in a separate repo: [tools-screentime-gnome-extension](https://github.com/jonwhittlestone/tools-screentime-gnome-extension) (private).
+
 **Zero external dependencies** — uses only Go's standard library (`net/http`, `encoding/json`, `testing`).
 
 ---

@@ -84,6 +84,27 @@ func NewStore() *Store {
 		HideSuspend:   true,
 		HasScreentime: true,
 	}
+	// doylestone440: Ubuntu desktop (Lenovo 440), kid dev machine. SSHUser is
+	// `maker` — unlike joseph, maker is NOT in the sudo group by design (see
+	// the doylestone440 setup doc, Part 4), so SSHSudoPw here can't actually
+	// authenticate chpasswd. Screentime timer/suspend/poweroff/screen-lock
+	// (none need sudo) work the same as joseph-laptop; SET PASSWORD and
+	// UNLOCK ACCOUNT will fail at the SSH layer for this machine.
+	// One-time setup: generate SSH key on this server, copy public key to maker's authorized_keys.
+	// ssh-keygen -t ed25519 -f /home/admin/.ssh/id_maker440_screentime -N ""
+	// ssh-copy-id -i /home/admin/.ssh/id_maker440_screentime.pub maker@192.168.0.220
+	s.machines["doylestone440"] = Machine{
+		ID:            "doylestone440",
+		Name:          "doylestone440",
+		IP:            "192.168.0.220",
+		SSHUser:       "maker",
+		SSHKeyPath:    "/home/admin/.ssh/id_maker440_screentime",
+		SSHSudoPw:     os.Getenv("MAKER440_SUDO_PW"),
+		Notes:         "maker's Ubuntu dev/Minecraft machine (Lenovo 440). Screen time managed via screentime-timer.py.",
+		HideWake:      true,
+		HideSuspend:   true,
+		HasScreentime: true,
+	}
 	return s
 }
 

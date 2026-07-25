@@ -19,10 +19,11 @@ import (
 
 // resolveScreentimeUser maps a `?user=` query value to the OS-level
 // credentials it should act as. "" (or a value matching the machine's
-// top-level SSHUser) resolves to the machine's own SSH credentials, treated
-// as the admin account — this keeps every pre-existing single-user machine
-// working unchanged. Any other value must match one of the machine's
-// registered ScreentimeUsers.
+// top-level SSHUser) resolves to the machine's own SSH credentials — its
+// IsAdmin flag comes from the machine record itself (NOT assumed true; e.g.
+// doylestone440's SSHUser "maker" has no sudo there, unlike joseph-laptop's
+// "joseph"). Any other value must match one of the machine's registered
+// ScreentimeUsers.
 func resolveScreentimeUser(m models.Machine, userID string) (models.ScreentimeUser, bool) {
 	if userID == "" || userID == m.SSHUser {
 		// Machines with no SSH credentials at all still resolve here (empty
@@ -32,7 +33,7 @@ func resolveScreentimeUser(m models.Machine, userID string) (models.ScreentimeUs
 			ID:         m.SSHUser,
 			SSHUser:    m.SSHUser,
 			SSHKeyPath: m.SSHKeyPath,
-			IsAdmin:    true,
+			IsAdmin:    m.IsAdmin,
 		}, true
 	}
 	for _, su := range m.ScreentimeUsers {

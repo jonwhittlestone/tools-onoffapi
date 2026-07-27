@@ -83,6 +83,7 @@ func NewStore() *Store {
 		ID:            "joseph-laptop",
 		Name:          "joseph-laptop",
 		IP:            "192.168.0.102",
+		TailscaleIP:   "100.71.164.12",
 		SSHUser:       "joseph",
 		SSHKeyPath:    "/home/admin/.ssh/id_joseph_screentime",
 		SSHSudoPw:     os.Getenv("JOSEPH_SUDO_PW"),

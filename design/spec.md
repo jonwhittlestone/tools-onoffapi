@@ -2306,13 +2306,23 @@ cd /tmp
 curl -O https://pkgs.tailscale.com/stable/tailscale_1.98.9_amd64.tgz   # check https://pkgs.tailscale.com/stable/?mode=json for the current version
 tar xzf tailscale_1.98.9_amd64.tgz
 cd tailscale_1.98.9_amd64
-sudo ./install-system-daemon.sh   # installs the binaries + a systemd unit, starts tailscaled
-sudo tailscale up                 # same auth-URL flow as step 2 above
+```
+
+Current tarballs (checked against 1.98.9) ship only the two binaries plus systemd unit files — no `install-system-daemon.sh` (that script existed in older releases). Install manually:
+
+```bash
+sudo cp tailscale tailscaled /usr/bin/
+sudo cp systemd/tailscaled.service systemd/tailscale-wait-online.service systemd/tailscale-online.target /etc/systemd/system/
+sudo mkdir -p /etc/default
+sudo cp systemd/tailscaled.defaults /etc/default/tailscaled
+sudo systemctl daemon-reload
+sudo systemctl enable --now tailscaled
+sudo tailscale up   # same auth-URL flow as step 2 above
 ```
 
 **Per-machine notes from this rollout:**
 - `doylestone440` — `maker` has no sudo there (see the `IsAdmin: false` comment in `models/machine.go`); Jon ran the install himself as the `jon` account (which does have sudo, confirmed via `getent group sudo`), needing an interactive sudo password Claude doesn't have.
-- `joseph-laptop` — `joseph` does have sudo and Claude already holds `JOSEPH_SUDO_PW` for the existing screentime lock feature, so a scripted install was attempted first; it failed 3-attempt sudo auth (stored password didn't match what's live on the box), so Claude stopped rather than risk locking the account, and Jon did this one manually too. Also hit the unrecognised-distro error (EndlessOS) on the standard `install.sh`, worked around with the static tarball above.
+- `joseph-laptop` — `joseph` does have sudo and Claude already holds `JOSEPH_SUDO_PW` for the existing screentime lock feature, so a scripted install was attempted first; it failed 3-attempt sudo auth (stored password didn't match what's live on the box), so Claude stopped rather than risk locking the account, and Jon did this one manually too. Also hit the unrecognised-distro error (EndlessOS) on the standard `install.sh`, worked around with the static tarball above — and then hit a **second** EndlessOS-specific wall: `/usr` itself is a read-only OSTree-managed mount (`mount` shows it `ro`, only `/` is `rw`), so `sudo cp tailscale tailscaled /usr/bin/` failed with "Read only file system" even with a correct password. Fixed by installing the binaries to `/opt/tailscale` instead (`/opt` → `/var/opt`, which lives on the writable root partition) and rewriting `tailscaled.service`'s `ExecStart` from `/usr/sbin/tailscaled` to `/opt/tailscale/tailscaled` before copying it into `/etc/systemd/system/` (`/etc` remained writable — OSTree keeps it mutable by design for local admin config, unlike `/usr`). Successfully enrolled: `100.71.164.12`.
 
 ---
 

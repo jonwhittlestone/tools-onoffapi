@@ -28,7 +28,11 @@ jobs:
         run: go build ./...
 
       - name: Run tests
-        run: go test ./... -v -cover
+        # Scoped to packages that actually have tests. Including the no-test-file
+        # root package (main.go) under -cover trips "go: no such tool covdata" on
+        # this runner's Go toolchain — a coverage-tooling quirk, not a real failure
+        # (both handlers and models passed every test while this was failing).
+        run: go test ./handlers/... ./models/... -v -cover
         env:
           # Tests don't start the real server so API_KEY is not needed,
           # but set a dummy value so any env reads don't panic

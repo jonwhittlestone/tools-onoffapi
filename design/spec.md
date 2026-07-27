@@ -1748,6 +1748,246 @@ fix(commit-20): remove old Docker container; add curl to image; kill orphan in d
 - deploy.sh: sudo pkill -x onoffapi before podman run to clear any orphaned host process
 ```
 
+## Feature 5 — Add machine `madebyjon` (power off + lock screen)
+
+> Please add this machine
+> host: madebyjon
+> ip: `192.168.0.218`
+> This is my development machine. My first Lenovo! T440s.
+> There is an entry in ssh config for this machine
+>
+> I'd like to be able to power off and lock screen remotely using tools-onoffapi
+> Please implement feature with red-green TDD on a feature branch.
+> Omit the coauthor trailer for commit messages and pr descriptions.
+> Deploy so i can smoke test, then commit, and push and pr to main. Then merge and pull from remote.
+
+madebyjon needs **shutdown** (already generic — any machine with `SSHUser`/`SSHKeyPath` gets it for free via `handlers/shutdown.go`) and a **new** capability: **lock screen** (as opposed to the existing *unlock*-screen feature built for the kids' screentime flow). `loginctl lock-session` is the mirror image of the existing `loginctl unlock-session` call in `handlers/unlockscreen.go`, so the new handler reuses `parseActiveSessionID` and the `screentimeSSH` helper rather than duplicating SSH plumbing.
+
+### Commit 21
+
+**What you learn:** Extending an existing SSH-command pattern (mirror of unlock → lock) with red/green TDD; registering a new dedicated per-machine SSH key in the deploy pipeline.
+
+#### Pre-requisites — SSH key + sudoers on madebyjon
+
+Same pattern as `id_onoffapi_shutdown_doylestone02` (Commit 15), one dedicated keypair per machine:
+
+```bash
+# On doylestonex — generate the keypair
+ssh-keygen -t ed25519 -f /home/admin/.ssh/id_onoffapi_madebyjon -N ""
+
+# Authorise it on madebyjon
+ssh-copy-id -i /home/admin/.ssh/id_onoffapi_madebyjon.pub jon@192.168.0.218
+# verify:
+ssh -i /home/admin/.ssh/id_onoffapi_madebyjon jon@192.168.0.218 "echo ok"
+```
+
+```bash
+# On madebyjon — allow passwordless poweroff (SSH session has no TTY, so sudo needs NOPASSWD)
+echo 'jon ALL=(ALL) NOPASSWD: /sbin/poweroff, /usr/sbin/poweroff' | sudo tee /etc/sudoers.d/onoffapi-poweroff
+sudo chmod 440 /etc/sudoers.d/onoffapi-poweroff
+```
+
+`loginctl lock-session`/`unlock-session` need no sudo — they talk to the caller's own logind session — so no further sudoers entry is needed for the lock-screen feature itself.
+
+#### Machine registration
+
+Add to `models/machine.go` (`NewStore`), mirroring `blackpants` — a personal laptop where Wake-on-LAN over WiFi isn't reliable, so the wake button is hidden and no MAC is recorded:
+
+```go
+// madebyjon: Jon's dev laptop (first Lenovo, T440s). WiFi-only, WoL not viable.
+s.machines["madebyjon"] = Machine{
+	ID:         "madebyjon",
+	Name:       "madebyjon",
+	IP:         "192.168.0.218",
+	SSHUser:    "jon",
+	SSHKeyPath: "/home/admin/.ssh/id_onoffapi_madebyjon",
+	Notes:      "Jon's development machine. First Lenovo! T440s.",
+	HideWake:   true,
+}
+```
+
+#### Red — failing tests first
+
+`handlers/lockscreen_test.go`, mirroring `handlers/unlockscreen_test.go`:
+
+```go
+package handlers
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/jonwhittlestone/tools-onoffapi/models"
+)
+
+func TestLockScreen_NotFound(t *testing.T) {
+	req := httptest.NewRequest("POST", "/machines/unknown/lock-screen", nil)
+	w := httptest.NewRecorder()
+	newScreentimeMux().ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestLockScreen_MissingSSHCredentials(t *testing.T) {
+	store := models.NewStore()
+	store.Create(models.Machine{ID: "nokeys", Name: "No Keys", IP: "192.168.0.99", MAC: "aa:bb:cc:dd:ee:ff"})
+	h := NewMachineHandler(store)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	req := httptest.NewRequest("POST", "/machines/nokeys/lock-screen", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422, got %d", w.Code)
+	}
+}
+
+func TestLockScreen_MissingKeyFile(t *testing.T) {
+	store := models.NewStore()
+	store.Create(models.Machine{
+		ID: "badkey", Name: "Bad Key", IP: "192.168.0.99", MAC: "aa:bb:cc:dd:ee:ff",
+		SSHUser: "jon", SSHKeyPath: "/nonexistent/id_rsa",
+	})
+	h := NewMachineHandler(store)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	req := httptest.NewRequest("POST", "/machines/badkey/lock-screen", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+```
+
+Run them — they fail to compile (`h.lockScreen` and the route don't exist yet). That's the "red" step.
+
+#### Green — implement the handler
+
+`handlers/lockscreen.go`, the mirror image of `handlers/unlockscreen.go`:
+
+```go
+package handlers
+
+import (
+	"fmt"
+	"net/http"
+)
+
+// lockScreen handles POST /machines/{id}/lock-screen.
+//
+// Mirror image of unlockScreen (handlers/unlockscreen.go): SSHes in as the
+// machine's own login user and asks systemd-logind to lock that user's
+// active graphical session via `loginctl lock-session`, which emits the
+// D-Bus "Lock" signal the desktop's screen shield listens for.
+func (h *MachineHandler) lockScreen(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	m, ok := h.store.GetByID(id)
+	if !ok {
+		writeError(w, http.StatusNotFound, "machine not found")
+		return
+	}
+	if m.SSHUser == "" || m.SSHKeyPath == "" {
+		writeError(w, http.StatusUnprocessableEntity, "machine has no SSH credentials")
+		return
+	}
+
+	out, err := screentimeSSHOutput(m.SSHUser, m.SSHKeyPath, m.IP, "loginctl list-sessions --no-legend")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("could not list sessions: %v", err))
+		return
+	}
+	sessionID := parseActiveSessionID(out, m.SSHUser)
+	if sessionID == "" {
+		writeError(w, http.StatusNotFound, "no active graphical session found for this user")
+		return
+	}
+
+	if err := screentimeSSH(m.SSHUser, m.SSHKeyPath, m.IP, "loginctl lock-session "+sessionID); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("lock failed: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "screen locked"})
+}
+```
+
+Register the route in `handlers/machines.go`:
+
+```go
+mux.HandleFunc("POST /machines/{id}/lock-screen", h.lockScreen)
+```
+
+`go test ./...` should now pass — that's the "green" step.
+
+#### Frontend — LOCK SCREEN button
+
+Unlike `🔓 UNLOCK SCREEN` (which lives in the screentime panel, gated on `m.has_screentime`), `🔒 LOCK SCREEN` belongs next to WAKE/SUSPEND/SHUTDOWN in `machine-actions` since madebyjon isn't a screentime-managed kid machine:
+
+```html
+<!-- static/index.html — machine-actions row -->
+<button data-cmd="lock-screen" onclick="action('${m.id}','lock-screen',this)">🔒 LOCK SCREEN</button>
+```
+
+The existing generic `action()` function needs one small fix: it assumed the only non-`wake`/`suspend` command was `shutdown`, so its `else` branch always marked the machine unreachable after any other action succeeded. That's wrong for `lock-screen` — locking doesn't take the machine offline — so the branch needs to be split:
+
+```javascript
+// static/index.html — action() success branch
+if (cmd === 'wake') applyState(id, true, false);
+else if (cmd === 'suspend') applyState(id, false, true);
+else if (cmd === 'shutdown') applyState(id, false, false);
+else applyState(id, true, false); // lock-screen: machine stays reachable
+```
+
+Without this, the LOCK SCREEN button would also stay disabled after a successful click (nothing re-enables it until the next 10s poll), since `applyState()` — which resets every button's `disabled` state — was previously only invoked for the three known commands.
+
+#### Deploy — mount the new key
+
+Add the new key to `deploy/deploy.sh`'s `podman run`, alongside the other per-machine keys:
+
+```bash
+-v /home/admin/.ssh/id_onoffapi_madebyjon:/home/admin/.ssh/id_onoffapi_madebyjon:ro \
+```
+
+```bash
+make deploy
+# smoke test:
+curl -X POST https://howapped.zapto.org/onoffapi/machines/madebyjon/lock-screen -H "X-API-Key: ..."
+curl -X POST https://howapped.zapto.org/onoffapi/machines/madebyjon/shutdown -H "X-API-Key: ..."
+```
+
+### Fix — stable dashboard ordering
+
+**Smoke test finding:** lock-screen worked; shutdown reported success but madebyjon stayed up (the sudoers NOPASSWD step is still pending — the handler's `sess.Run` error is deliberately swallowed on the assumption any failure just means the connection dropped from a successful poweroff, so a *failed* `sudo poweroff` currently looks identical to a successful one over the API). Also flagged: the dashboard reshuffled machine order on every reload.
+
+**Cause:** `Store.GetAll()` (`models/machine.go`) iterated the `machines map[string]Machine` directly — Go deliberately randomises map iteration order, so every page load could produce a different card order.
+
+**Fix (TDD):** added `models/machine_test.go` first (red — asserts `GetAll()` returns machines in creation order, and that `NewStore()`'s seed order is `doylestone02, blackpants, joseph-laptop, doylestone440, madebyjon`), then added an `order []string` field to `Store` that `Create` appends to and `Delete` prunes; `GetAll` now walks `order` instead of ranging over the map (green). The seed function in `NewStore` was refactored to call `s.Create(...)` for each machine instead of assigning into the map directly, so the seed order is captured for free through the same code path every other caller uses.
+
+```go
+type Store struct {
+	mu       sync.RWMutex
+	machines map[string]Machine
+	order    []string // insertion order of IDs — kept in sync by Create/Delete
+}
+
+func (s *Store) GetAll() []Machine {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	list := make([]Machine, 0, len(s.order))
+	for _, id := range s.order {
+		list = append(list, s.machines[id])
+	}
+	return list
+}
+```
+
+---
+
 ## Deployment on doylestonex
 
 ### Nginx reverse proxy config (matches kaizen pattern)

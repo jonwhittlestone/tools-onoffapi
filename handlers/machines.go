@@ -38,6 +38,7 @@ func (h *MachineHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /machines/{id}/screentime/unlock", h.unlockScreentime)
 	mux.HandleFunc("POST /machines/{id}/password", h.setPassword)
 	mux.HandleFunc("POST /machines/{id}/unlock-screen", h.unlockScreen)
+	mux.HandleFunc("POST /machines/{id}/lock-screen", h.lockScreen)
 }
 
 func (h *MachineHandler) listMachines(w http.ResponseWriter, r *http.Request) {

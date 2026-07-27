@@ -224,6 +224,21 @@
             return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
         }
 
+        let currentNetworkMode = 'tailscale';
+
+        // Mirrors the server's effectiveIP() fallback: tailscale mode uses the
+        // machine's tailscale_ip if it has one, otherwise falls back to LAN —
+        // shown here so the dashboard reflects exactly what the server will dial.
+        function effectiveIPLine(m) {
+            if (currentNetworkMode === 'tailscale' && m.tailscale_ip) {
+                return `<p><strong>IP (tailscale):</strong> ${m.tailscale_ip}</p>`;
+            }
+            if (currentNetworkMode === 'tailscale') {
+                return `<p><strong>IP (lan — not on tailnet):</strong> ${m.ip}</p>`;
+            }
+            return `<p><strong>IP (lan):</strong> ${m.ip}</p>`;
+        }
+
         async function loadMachines() {
             const res = await fetch('./machines', { headers: { 'X-API-Key': apiKey } });
             if (!res.ok) {
@@ -235,7 +250,7 @@
             document.getElementById('machines').innerHTML = machines.map(m => `
                 <div class="machine">
                     <h2>${m.name}</h2>
-                    <p><strong>IP:</strong> ${m.ip}</p>
+                    ${effectiveIPLine(m)}
                     ${m.mac ? `<p><strong>MAC:</strong> ${m.mac}</p>` : ''}
                     ${m.notes ? `<p>${m.notes}</p>` : ''}
                     <div class="machine-actions">
@@ -436,26 +451,31 @@
             }
         }
 
-        function showApp() {
+        async function showApp() {
             document.getElementById('login').style.display = 'none';
             document.getElementById('app').style.display = '';
+            await loadNetworkMode(); // must resolve before the first render so cards show the right address
             loadMachines();
-            loadNetworkMode();
         }
 
         async function loadNetworkMode() {
             const res = await fetch('./network-mode', { headers: { 'X-API-Key': apiKey } });
             if (!res.ok) return;
             const { mode } = await res.json();
+            currentNetworkMode = mode;
             document.getElementById('network-mode-select').value = mode;
         }
 
         async function setNetworkMode(mode) {
-            await fetch('./network-mode', {
+            const res = await fetch('./network-mode', {
                 method: 'POST',
                 headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ mode })
             });
+            if (res.ok) {
+                currentNetworkMode = mode;
+                loadMachines(); // re-render cards showing the newly effective address
+            }
         }
 
         function logout() {

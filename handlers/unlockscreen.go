@@ -28,7 +28,8 @@ func (h *MachineHandler) unlockScreen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out, err := screentimeSSHOutput(m.SSHUser, m.SSHKeyPath, m.IP, "loginctl list-sessions --no-legend")
+	ip := effectiveIP(m, h.networkMode.Get())
+	out, err := screentimeSSHOutput(m.SSHUser, m.SSHKeyPath, ip, "loginctl list-sessions --no-legend")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("could not list sessions: %v", err))
 		return
@@ -39,7 +40,7 @@ func (h *MachineHandler) unlockScreen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := screentimeSSH(m.SSHUser, m.SSHKeyPath, m.IP, "loginctl unlock-session "+sessionID); err != nil {
+	if err := screentimeSSH(m.SSHUser, m.SSHKeyPath, ip, "loginctl unlock-session "+sessionID); err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("unlock failed: %v", err))
 		return
 	}

@@ -11,6 +11,7 @@ import (
 type MachineHandler struct {
 	store           *models.Store
 	screentimeStore *screentimeStore
+	networkMode     *models.NetworkModeStore
 }
 
 // NewMachineHandler creates a handler wired to the given store.
@@ -18,6 +19,7 @@ func NewMachineHandler(store *models.Store) *MachineHandler {
 	return &MachineHandler{
 		store:           store,
 		screentimeStore: newScreentimeStore("/app/data/screentime.json"),
+		networkMode:     models.NewNetworkModeStore(),
 	}
 }
 
@@ -39,6 +41,8 @@ func (h *MachineHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /machines/{id}/password", h.setPassword)
 	mux.HandleFunc("POST /machines/{id}/unlock-screen", h.unlockScreen)
 	mux.HandleFunc("POST /machines/{id}/lock-screen", h.lockScreen)
+	mux.HandleFunc("GET /network-mode", h.getNetworkMode)
+	mux.HandleFunc("POST /network-mode", h.setNetworkMode)
 }
 
 func (h *MachineHandler) listMachines(w http.ResponseWriter, r *http.Request) {

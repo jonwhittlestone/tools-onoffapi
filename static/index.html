@@ -18,7 +18,12 @@
     </div>
 
     <div id="app" style="display:none">
-        <h1>Machines <button id="theme-toggle">🌓</button> <button id="logout">Logout</button></h1>
+        <h1>Machines
+            <select id="network-mode-select" onchange="setNetworkMode(this.value)">
+                <option value="tailscale">🌐 Tailscale</option>
+                <option value="lan">🏠 LAN only</option>
+            </select>
+            <button id="theme-toggle">🌓</button> <button id="logout">Logout</button></h1>
         <div id="machines"></div>
     </div>
 
@@ -435,6 +440,22 @@
             document.getElementById('login').style.display = 'none';
             document.getElementById('app').style.display = '';
             loadMachines();
+            loadNetworkMode();
+        }
+
+        async function loadNetworkMode() {
+            const res = await fetch('./network-mode', { headers: { 'X-API-Key': apiKey } });
+            if (!res.ok) return;
+            const { mode } = await res.json();
+            document.getElementById('network-mode-select').value = mode;
+        }
+
+        async function setNetworkMode(mode) {
+            await fetch('./network-mode', {
+                method: 'POST',
+                headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode })
+            });
         }
 
         function logout() {

@@ -256,6 +256,7 @@ func (h *MachineHandler) getScreentime(w http.ResponseWriter, r *http.Request) {
 	}
 	storeKey := screentimeStoreKey(id, su)
 	statePath := screentimeStatePath(su)
+	ip := effectiveIP(m, h.networkMode.Get())
 
 	st, active := h.screentimeStore.get(storeKey)
 
@@ -268,7 +269,7 @@ func (h *MachineHandler) getScreentime(w http.ResponseWriter, r *http.Request) {
 		}
 		entry, fresh := h.screentimeStore.getCachedRemote(storeKey)
 		if !fresh {
-			remaining, running, err := screentimeReadRemoteState(su.SSHUser, su.SSHKeyPath, m.IP, statePath)
+			remaining, running, err := screentimeReadRemoteState(su.SSHUser, su.SSHKeyPath, ip, statePath)
 			entry = remoteStateCache{checkedAt: time.Now(), remainingSecs: remaining, running: running}
 			if err != nil {
 				// SSH failed — can't determine state, assume inactive
@@ -309,7 +310,7 @@ func (h *MachineHandler) getScreentime(w http.ResponseWriter, r *http.Request) {
 	// false "not running" results.
 	pastGrace := time.Since(st.startedAt) > liveCheckGrace
 	if pastGrace && su.SSHUser != "" && su.SSHKeyPath != "" && h.screentimeStore.checkAndMark(storeKey) {
-		running, err := screentimeIsRunning(su.SSHUser, su.SSHKeyPath, m.IP, statePath)
+		running, err := screentimeIsRunning(su.SSHUser, su.SSHKeyPath, ip, statePath)
 		if err == nil && !running {
 			h.screentimeStore.clear(storeKey)
 			writeJSON(w, http.StatusOK, map[string]bool{"active": false})
@@ -381,7 +382,7 @@ func (h *MachineHandler) startScreentime(w http.ResponseWriter, r *http.Request)
 
 	cmd := buildStartCmd(req.Duration, req.Action, lockAccount, req.RestoreAfter)
 	startedAt := time.Now()
-	if err := screentimeSSH(su.SSHUser, su.SSHKeyPath, m.IP, cmd); err != nil {
+	if err := screentimeSSH(su.SSHUser, su.SSHKeyPath, effectiveIP(m, h.networkMode.Get()), cmd); err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("command failed: %v", err))
 		return
 	}
@@ -420,7 +421,7 @@ func (h *MachineHandler) stopScreentime(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := screentimeSSH(su.SSHUser, su.SSHKeyPath, m.IP, "python3 ~/screentime-timer.py --stop"); err != nil {
+	if err := screentimeSSH(su.SSHUser, su.SSHKeyPath, effectiveIP(m, h.networkMode.Get()), "python3 ~/screentime-timer.py --stop"); err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("command failed: %v", err))
 		return
 	}
@@ -451,7 +452,7 @@ func (h *MachineHandler) unlockScreentime(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := screentimeSSH(su.SSHUser, su.SSHKeyPath, m.IP, "python3 ~/screentime-timer.py --unlock"); err != nil {
+	if err := screentimeSSH(su.SSHUser, su.SSHKeyPath, effectiveIP(m, h.networkMode.Get()), "python3 ~/screentime-timer.py --unlock"); err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("command failed: %v", err))
 		return
 	}

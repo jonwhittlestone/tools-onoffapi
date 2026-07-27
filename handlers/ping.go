@@ -18,7 +18,7 @@ func (h *MachineHandler) ping(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := net.DialTimeout("tcp", m.IP+":22", 2*time.Second)
+	conn, err := net.DialTimeout("tcp", effectiveIP(m, h.networkMode.Get())+":22", 2*time.Second)
 	reachable := err == nil
 	if conn != nil {
 		conn.Close()

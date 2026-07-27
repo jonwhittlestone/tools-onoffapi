@@ -44,6 +44,7 @@ type Machine struct {
 type Store struct {
 	mu       sync.RWMutex
 	machines map[string]Machine
+	order    []string // insertion order of IDs — map iteration order is randomised, so GetAll uses this for a stable dashboard listing
 }
 
 // NewStore creates a Store pre-seeded with known machines.
@@ -52,7 +53,7 @@ func NewStore() *Store {
 		machines: make(map[string]Machine),
 	}
 	// Seed with doylestone02
-	s.machines["doylestone02"] = Machine{
+	s.Create(Machine{
 		ID:         "doylestone02",
 		Name:       "doylestone02",
 		IP:         "192.168.0.203",
@@ -60,9 +61,9 @@ func NewStore() *Store {
 		SSHUser:    "jon",
 		SSHKeyPath: "/home/admin/.ssh/id_onoffapi_shutdown_doylestone02",
 		Notes:      "Gaming/media PC. Auto-shuts down at 23:59 via systemd timer.",
-	}
+	})
 	// blackpants: handheld wifi cyberdeck — WoL unreliable over WiFi, shutdown only
-	s.machines["blackpants"] = Machine{
+	s.Create(Machine{
 		ID:          "blackpants",
 		Name:        "blackpants",
 		IP:          "192.168.0.246",
@@ -71,12 +72,12 @@ func NewStore() *Store {
 		Notes:       "Handheld wifi cyberdeck (doylestone02).",
 		HideWake:    true,
 		HideSuspend: true,
-	}
+	})
 	// joseph-laptop: EndlessOS laptop. WoL not viable (WiFi). Screentime managed via screentime-timer.py.
 	// One-time setup: generate SSH key on this server, copy public key to joseph's authorized_keys.
 	// ssh-keygen -t ed25519 -f /home/admin/.ssh/id_joseph_screentime -N ""
 	// ssh-copy-id -i /home/admin/.ssh/id_joseph_screentime.pub joseph@192.168.0.102
-	s.machines["joseph-laptop"] = Machine{
+	s.Create(Machine{
 		ID:            "joseph-laptop",
 		Name:          "joseph-laptop",
 		IP:            "192.168.0.102",
@@ -88,7 +89,7 @@ func NewStore() *Store {
 		HideSuspend:   true,
 		HasScreentime: true,
 		IsAdmin:       true, // joseph has sudo on his own laptop
-	}
+	})
 	// doylestone440: Ubuntu desktop (Lenovo 440), kid dev machine. SSHUser is
 	// `maker` — unlike joseph, maker is NOT in the sudo group by design (see
 	// the doylestone440 setup doc, Part 4), so SSHSudoPw here can't actually
@@ -98,7 +99,7 @@ func NewStore() *Store {
 	// One-time setup: generate SSH key on this server, copy public key to maker's authorized_keys.
 	// ssh-keygen -t ed25519 -f /home/admin/.ssh/id_maker440_screentime -N ""
 	// ssh-copy-id -i /home/admin/.ssh/id_maker440_screentime.pub maker@192.168.0.220
-	s.machines["doylestone440"] = Machine{
+	s.Create(Machine{
 		ID:            "doylestone440",
 		Name:          "doylestone440",
 		IP:            "192.168.0.220",
@@ -110,19 +111,30 @@ func NewStore() *Store {
 		HideSuspend:   true,
 		HasScreentime: true,
 		IsAdmin:       false, // maker has no sudo on doylestone440 — explicit, not just the zero value
-	}
+	})
+	// madebyjon: Jon's dev laptop (first Lenovo, T440s). WiFi-only, WoL not viable.
+	s.Create(Machine{
+		ID:         "madebyjon",
+		Name:       "madebyjon",
+		IP:         "192.168.0.218",
+		SSHUser:    "jon",
+		SSHKeyPath: "/home/admin/.ssh/id_onoffapi_madebyjon",
+		Notes:      "Jon's development machine. First Lenovo! T440s.",
+		HideWake:   true,
+	})
 	return s
 }
 
-// GetAll returns a slice of all machines.
-// RLock allows multiple concurrent readers.
+// GetAll returns a slice of all machines in insertion order — map iteration
+// order is randomised in Go, so this uses the Store's order slice to keep
+// the dashboard listing stable across requests.
 func (s *Store) GetAll() []Machine {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	list := make([]Machine, 0, len(s.machines))
-	for _, m := range s.machines {
-		list = append(list, m)
+	list := make([]Machine, 0, len(s.order))
+	for _, id := range s.order {
+		list = append(list, s.machines[id])
 	}
 	return list
 }
@@ -146,6 +158,7 @@ func (s *Store) Create(m Machine) bool {
 		return false
 	}
 	s.machines[m.ID] = m
+	s.order = append(s.order, m.ID)
 	return true
 }
 
@@ -171,5 +184,11 @@ func (s *Store) Delete(id string) bool {
 		return false
 	}
 	delete(s.machines, id)
+	for i, oid := range s.order {
+		if oid == id {
+			s.order = append(s.order[:i], s.order[i+1:]...)
+			break
+		}
+	}
 	return true
 }

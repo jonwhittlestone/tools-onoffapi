@@ -45,9 +45,11 @@
             const wakeBtn = card.querySelector('[data-cmd="wake"]');
             const suspendBtn = card.querySelector('[data-cmd="suspend"]');
             const shutdownBtn = card.querySelector('[data-cmd="shutdown"]');
+            const lockScreenBtn = card.querySelector('[data-cmd="lock-screen"]');
             if (wakeBtn) wakeBtn.disabled = reachable;
             if (suspendBtn) suspendBtn.disabled = !reachable;
             if (shutdownBtn) shutdownBtn.disabled = !reachable;
+            if (lockScreenBtn) lockScreenBtn.disabled = !reachable;
             // Every screentime action (including UNLOCK SCREEN) needs SSH to a
             // running desktop session, so the whole panel is pointless — and
             // its buttons would just fail — while the machine is offline.
@@ -235,6 +237,7 @@
                         ${m.hide_wake ? '' : `<button data-cmd="wake" onclick="action('${m.id}','wake',this)">☀️ WAKE</button>`}
                         ${m.hide_suspend ? '' : `<button data-cmd="suspend" onclick="action('${m.id}','suspend',this)">💤 SUSPEND</button>`}
                         <button data-cmd="shutdown" onclick="action('${m.id}','shutdown',this)">🌙 SHUTDOWN</button>
+                        <button data-cmd="lock-screen" onclick="action('${m.id}','lock-screen',this)">🔒 LOCK SCREEN</button>
                         <span class="state-indicator"></span>
                         <span class="status" id="status-${m.id}"></span>
                     </div>
@@ -467,7 +470,8 @@
                     statusEl.textContent = 'OK';
                     if (cmd === 'wake') applyState(id, true, false);
                     else if (cmd === 'suspend') applyState(id, false, true);
-                    else applyState(id, false, false);
+                    else if (cmd === 'shutdown') applyState(id, false, false);
+                    else applyState(id, true, false); // lock-screen: machine stays reachable
                 } else {
                     statusEl.textContent = 'Error ' + res.status;
                     btn.disabled = false;

@@ -2325,6 +2325,19 @@ sudo tailscale up   # same auth-URL flow as step 2 above
 - `joseph-laptop` — `joseph` does have sudo and Claude already holds `JOSEPH_SUDO_PW` for the existing screentime lock feature, so a scripted install was attempted first; it failed 3-attempt sudo auth (stored password didn't match what's live on the box), so Claude stopped rather than risk locking the account, and Jon did this one manually too. Also hit the unrecognised-distro error (EndlessOS) on the standard `install.sh`, worked around with the static tarball above — and then hit a **second** EndlessOS-specific wall: `/usr` itself is a read-only OSTree-managed mount (`mount` shows it `ro`, only `/` is `rw`), so `sudo cp tailscale tailscaled /usr/bin/` failed with "Read only file system" even with a correct password. Fixed by installing the binaries to `/opt/tailscale` instead (`/opt` → `/var/opt`, which lives on the writable root partition) and rewriting `tailscaled.service`'s `ExecStart` from `/usr/sbin/tailscaled` to `/opt/tailscale/tailscaled` before copying it into `/etc/systemd/system/` (`/etc` remained writable — OSTree keeps it mutable by design for local admin config, unlike `/usr`). Successfully enrolled: `100.71.164.12`.
 - `doylestone440` — regular Ubuntu (not EndlessOS), so the standard `install.sh` worked with no workarounds needed. `jon` has sudo there (unlike `maker`, who onoffapi authenticates as for this machine) but needs an interactive password Claude doesn't have, so Jon ran `install.sh` + `tailscale up` himself. Successfully enrolled: `100.82.116.98` — confirmed the existing `id_maker440_screentime` key (used to authenticate as `maker`, a different account than `jon`) connects identically over the new Tailscale address, since it's the same `sshd` and `authorized_keys` regardless of which interface the connection arrives on.
 
+### Fix — doylestone440 shutdown was broken, and its LAN IP had drifted too
+
+**Smoke test finding 1 — shutdown failed silently.** The `models/machine.go` comment for `doylestone440` claimed poweroff "needs no sudo... works the same as joseph-laptop", but this had apparently never actually been verified. Testing directly over SSH: `sudo poweroff` was denied outright (`maker` isn't in the sudo group, by design — this part of the comment was correct), and even a raw `systemctl poweroff` with no `sudo` prefix was denied by polkit ("requires interactive authentication"). So the shutdown button had presumably never worked for this machine.
+
+**Fix:** same pattern as `madebyjon`'s poweroff fix — a narrow NOPASSWD sudoers entry scoped to only `poweroff`, run by Jon directly on doylestone440:
+```bash
+echo 'maker ALL=(ALL) NOPASSWD: /sbin/poweroff, /usr/sbin/poweroff' | sudo tee /etc/sudoers.d/onoffapi-poweroff-maker
+sudo chmod 440 /etc/sudoers.d/onoffapi-poweroff-maker
+```
+This doesn't add `maker` to the sudo group or grant anything beyond that one command — the "no broad sudo for the kid account" design stays intact. Confirmed working: shutdown now actually powers the machine off.
+
+**Smoke test finding 2 — LAN IP drift.** Same class of bug as doylestone02's earlier fix: `doylestone440`'s configured LAN IP (`192.168.0.220`) had drifted to `192.168.0.55`, confirmed via `tailscale status` on doylestonex showing `active; direct 192.168.0.55:...`. Updated the seed's `IP` field. Both drifts (doylestone02 and doylestone440) suggest the router isn't reserving these addresses — worth a DHCP reservation for all onoffapi-managed machines if this keeps recurring.
+
 ---
 
 ## Deployment on doylestonex

@@ -1988,6 +1988,334 @@ func (s *Store) GetAll() []Machine {
 
 ---
 
+## Feature 6 — Tailscale mode (control machines off the home LAN)
+
+> As documented in `26-joseph-screentime-monitor-ssh-endlessos/main.md` (Iteration Six), we would like to install Tailscale on doylestonex so that onoffapi can control machines when connected to another LAN/through the public internet.
+>
+> This would involve installing tailscale on `doylestonex` and the machine in question. This would also prevent the need for having to hardcode IP addresses or reserve IP addresses on the home router.
+> If there was a scenario where the tailscale service was unavailable, then we would like to revert back to using ip addresses. This means that onoffapi would require some ability to use tailscale mode and LAN mode.
+> There would need to be a switch in the user interface. A global switch that would be on tailscale by default.
+
+**Discovery:** Tailscale was already installed and running on `doylestonex`, `doylestone02`, and `madebyjon` (100.111.151.118, 100.111.143.116, and 100.105.77.123 respectively, per `tailscale status` on doylestonex). It was **not** yet on `blackpants`, `joseph-laptop`, or `doylestone440`. Per Jon's call: install on `joseph-laptop` and `doylestone440` too (leave `blackpants` on LAN-only), and build the mode switch now using whichever machines have a Tailscale address at any given time — machines without one simply always use their LAN IP, regardless of mode.
+
+The switch is a **manual** toggle (not automatic failover) — matches the prompt's explicit wording ("a switch in the user interface... on tailscale by default").
+
+### Commit 22
+
+**What you learn:** A global in-memory settings store (mirrors the `Store` pattern already used for machines); a small pure function threaded through every SSH/dial call site instead of a shared "current connection" concept — keeps each handler stateless and easy to test.
+
+#### Machine model — add a Tailscale address per machine
+
+```go
+// models/machine.go — new field on Machine
+TailscaleIP string `json:"tailscale_ip,omitempty"` // stable 100.x.y.z address, empty if not on the tailnet
+```
+
+Populate it for the two machines already on the tailnet (confirmed via `tailscale status` on doylestonex):
+
+```go
+// doylestone02 seed
+TailscaleIP: "100.111.143.116",
+
+// madebyjon seed
+TailscaleIP: "100.105.77.123",
+```
+
+`joseph-laptop` and `doylestone440` get theirs added once installed (see the install guide below) — until then their field stays empty, so `effectiveIP` (next section) always falls back to LAN for them, exactly like today.
+
+#### Global network-mode store (red → green)
+
+`models/networkmode_test.go` (red first):
+
+```go
+package models
+
+import "testing"
+
+func TestNetworkModeStore_DefaultsToTailscale(t *testing.T) {
+	s := NewNetworkModeStore()
+	if got := s.Get(); got != "tailscale" {
+		t.Errorf("expected default mode tailscale, got %q", got)
+	}
+}
+
+func TestNetworkModeStore_SetLAN(t *testing.T) {
+	s := NewNetworkModeStore()
+	if !s.Set("lan") {
+		t.Fatal("expected Set(lan) to succeed")
+	}
+	if got := s.Get(); got != "lan" {
+		t.Errorf("expected lan, got %q", got)
+	}
+}
+
+func TestNetworkModeStore_RejectsInvalidMode(t *testing.T) {
+	s := NewNetworkModeStore()
+	if s.Set("bogus") {
+		t.Fatal("expected Set(bogus) to fail")
+	}
+	if got := s.Get(); got != "tailscale" {
+		t.Errorf("invalid Set must not change mode, got %q", got)
+	}
+}
+```
+
+`models/networkmode.go` (green):
+
+```go
+package models
+
+import "sync"
+
+// NetworkModeStore holds the single global "tailscale" vs "lan" switch that
+// decides which address field (TailscaleIP vs IP) every SSH/dial call site
+// uses. In-memory only — resets to the "tailscale" default on redeploy,
+// same as every other piece of state in this project (no database).
+type NetworkModeStore struct {
+	mu   sync.RWMutex
+	mode string
+}
+
+func NewNetworkModeStore() *NetworkModeStore {
+	return &NetworkModeStore{mode: "tailscale"}
+}
+
+func (s *NetworkModeStore) Get() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.mode
+}
+
+// Set returns false (no-op) for anything other than "tailscale" or "lan".
+func (s *NetworkModeStore) Set(mode string) bool {
+	if mode != "tailscale" && mode != "lan" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mode = mode
+	return true
+}
+```
+
+#### `effectiveIP` + settings endpoints (red → green)
+
+`handlers/networkmode_test.go` (red first):
+
+```go
+package handlers
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/jonwhittlestone/tools-onoffapi/models"
+)
+
+func TestEffectiveIP_TailscaleModeWithAddress(t *testing.T) {
+	m := models.Machine{IP: "192.168.0.218", TailscaleIP: "100.105.77.123"}
+	if got := effectiveIP(m, "tailscale"); got != "100.105.77.123" {
+		t.Errorf("expected tailscale IP, got %q", got)
+	}
+}
+
+func TestEffectiveIP_TailscaleModeWithoutAddress_FallsBackToLAN(t *testing.T) {
+	m := models.Machine{IP: "192.168.0.220"} // no TailscaleIP set
+	if got := effectiveIP(m, "tailscale"); got != "192.168.0.220" {
+		t.Errorf("expected LAN fallback, got %q", got)
+	}
+}
+
+func TestEffectiveIP_LANMode(t *testing.T) {
+	m := models.Machine{IP: "192.168.0.203", TailscaleIP: "100.111.143.116"}
+	if got := effectiveIP(m, "lan"); got != "192.168.0.203" {
+		t.Errorf("expected LAN IP even though tailscale is set, got %q", got)
+	}
+}
+
+func TestGetNetworkMode_DefaultsToTailscale(t *testing.T) {
+	req := httptest.NewRequest("GET", "/network-mode", nil)
+	w := httptest.NewRecorder()
+	newScreentimeMux().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), `"mode":"tailscale"`) {
+		t.Errorf("expected default mode tailscale in body, got %s", w.Body.String())
+	}
+}
+
+func TestSetNetworkMode_LAN(t *testing.T) {
+	req := httptest.NewRequest("POST", "/network-mode", strings.NewReader(`{"mode":"lan"}`))
+	w := httptest.NewRecorder()
+	newScreentimeMux().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), `"mode":"lan"`) {
+		t.Errorf("expected mode lan in body, got %s", w.Body.String())
+	}
+}
+
+func TestSetNetworkMode_RejectsInvalid(t *testing.T) {
+	req := httptest.NewRequest("POST", "/network-mode", strings.NewReader(`{"mode":"bogus"}`))
+	w := httptest.NewRecorder()
+	newScreentimeMux().ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+```
+
+`handlers/networkmode.go` (green):
+
+```go
+package handlers
+
+import (
+	"encoding/json"
+	"net/http"
+
+	"github.com/jonwhittlestone/tools-onoffapi/models"
+)
+
+// effectiveIP returns the address to dial for m under the given mode.
+// "tailscale" mode falls back to the LAN IP for any machine that has no
+// TailscaleIP set (i.e. hasn't been enrolled in the tailnet yet) — so
+// enabling the global switch never breaks a machine that isn't ready for it.
+func effectiveIP(m models.Machine, mode string) string {
+	if mode == "tailscale" && m.TailscaleIP != "" {
+		return m.TailscaleIP
+	}
+	return m.IP
+}
+
+func (h *MachineHandler) getNetworkMode(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"mode": h.networkMode.Get()})
+}
+
+func (h *MachineHandler) setNetworkMode(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if !h.networkMode.Set(body.Mode) {
+		writeError(w, http.StatusBadRequest, `mode must be "tailscale" or "lan"`)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"mode": h.networkMode.Get()})
+}
+```
+
+`handlers/machines.go` — add the field, initialise it, register the routes:
+
+```go
+type MachineHandler struct {
+	store           *models.Store
+	screentimeStore *screentimeStore
+	networkMode     *models.NetworkModeStore
+}
+
+func NewMachineHandler(store *models.Store) *MachineHandler {
+	return &MachineHandler{
+		store:           store,
+		screentimeStore: newScreentimeStore("/app/data/screentime.json"),
+		networkMode:     models.NewNetworkModeStore(),
+	}
+}
+
+// inside RegisterRoutes:
+mux.HandleFunc("GET /network-mode", h.getNetworkMode)
+mux.HandleFunc("POST /network-mode", h.setNetworkMode)
+```
+
+#### Thread `effectiveIP` through every SSH/dial call site
+
+Every handler that dials `m.IP+":22"` or passes `m.IP` to the `screentimeSSH*` helpers switches to `effectiveIP(m, h.networkMode.Get())`. Wake (`handlers/wake.go`) is untouched — WoL magic packets are LAN-broadcast only and don't route over Tailscale, so waking always stays LAN-based regardless of mode.
+
+Call sites updated: `handlers/suspend.go`, `handlers/shutdown.go`, `handlers/password.go`, `handlers/ping.go` (each has one `ssh.Dial`/`net.DialTimeout` using `m.IP`), `handlers/lockscreen.go`, `handlers/unlockscreen.go` (one `screentimeSSHOutput` + one `screentimeSSH` call each), and `handlers/screentime.go` (four call sites across `getScreentime`, `startScreentime`, `stopScreentime`, `unlockScreentime`).
+
+#### Frontend — global mode switch
+
+```html
+<!-- static/index.html — app header, next to the theme toggle -->
+<select id="network-mode-select" onchange="setNetworkMode(this.value)">
+    <option value="tailscale">🌐 Tailscale</option>
+    <option value="lan">🏠 LAN only</option>
+</select>
+```
+
+```javascript
+async function loadNetworkMode() {
+    const res = await fetch('./network-mode', { headers: { 'X-API-Key': apiKey } });
+    if (!res.ok) return;
+    const { mode } = await res.json();
+    document.getElementById('network-mode-select').value = mode;
+}
+
+async function setNetworkMode(mode) {
+    await fetch('./network-mode', {
+        method: 'POST',
+        headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode })
+    });
+}
+```
+
+`loadNetworkMode()` is called once from `showApp()`, alongside the existing `loadMachines()` call.
+
+### Fix — doylestone02's LAN IP had drifted
+
+**Smoke test finding:** toggling to `lan` mode and pinging `doylestone02` returned `{"reachable":false}`, while `tailscale` mode correctly returned `true`. Checked `ip addr` directly on the box (this project's `doylestone02` — same machine running this Claude Code session) and found its real address is `192.168.0.97`, not the `192.168.0.203` documented since the original design spec and configured in `models/machine.go`'s seed — a DHCP reassignment sometime after the initial setup, invisible until the LAN-fallback path was actually exercised (WoL uses the MAC, not the IP, and doylestone02 is rarely the *target* of a shutdown/suspend call from doylestonex, so nothing had dialled its LAN IP directly in a while).
+
+**Fix:** updated the seed's `IP` field to `192.168.0.97` (confirmed live, 2026-07-27). Left the historical mentions of `.203` elsewhere in this doc (setup instructions, WoL test log) untouched, since they're an accurate record of what was true at the time — only the live seed value needed correcting. Jon may want a DHCP reservation on the router so this doesn't drift again.
+
+---
+
+### Guide — installing Tailscale headlessly on a new machine
+
+No credentials need to be handed to Claude, and no local browser is required on the target machine:
+
+1. **Install the package** (safe to run non-interactively over SSH — no auth needed for this step):
+   ```bash
+   curl -fsSL https://tailscale.com/install.sh -o /tmp/ts-install.sh
+   sudo sh /tmp/ts-install.sh
+   ```
+2. **Bring the interface up and authenticate** — this is the one step that needs a human, but not a *local* one:
+   ```bash
+   sudo tailscale up
+   ```
+   This prints a `https://login.tailscale.com/a/...` URL to the terminal and then blocks, polling the control server. Open that URL on **any** device already signed into the same Tailscale account (phone, doylestone02's browser, etc.) and approve the new machine. The command returns as soon as it's approved — no browser or GUI needed on the machine itself.
+3. **Verify:**
+   ```bash
+   tailscale ip -4   # prints the new stable 100.x.y.z address
+   ```
+4. **Register the address** — add the printed IP as `TailscaleIP` on the corresponding entry in `models/machine.go`, redeploy.
+
+Fully-unattended alternative (skips the manual-approval step entirely): generate a reusable auth key from https://login.tailscale.com/admin/settings/keys and run `sudo tailscale up --authkey=tskey-...` instead of step 2. Optional — the interactive-URL flow above needs no key generation at all.
+
+**Fallback for unrecognised distros (e.g. EndlessOS):** `install.sh` detects the OS via `/etc/os-release` and refuses to guess on anything not in its list — EndlessOS (`ID=endless`, `ID_LIKE="ubuntu debian"`) hits this even though it's Debian/Ubuntu-based underneath. The static binary tarball sidesteps distro detection entirely:
+
+```bash
+cd /tmp
+curl -O https://pkgs.tailscale.com/stable/tailscale_1.98.9_amd64.tgz   # check https://pkgs.tailscale.com/stable/?mode=json for the current version
+tar xzf tailscale_1.98.9_amd64.tgz
+cd tailscale_1.98.9_amd64
+sudo ./install-system-daemon.sh   # installs the binaries + a systemd unit, starts tailscaled
+sudo tailscale up                 # same auth-URL flow as step 2 above
+```
+
+**Per-machine notes from this rollout:**
+- `doylestone440` — `maker` has no sudo there (see the `IsAdmin: false` comment in `models/machine.go`); Jon ran the install himself as the `jon` account (which does have sudo, confirmed via `getent group sudo`), needing an interactive sudo password Claude doesn't have.
+- `joseph-laptop` — `joseph` does have sudo and Claude already holds `JOSEPH_SUDO_PW` for the existing screentime lock feature, so a scripted install was attempted first; it failed 3-attempt sudo auth (stored password didn't match what's live on the box), so Claude stopped rather than risk locking the account, and Jon did this one manually too. Also hit the unrecognised-distro error (EndlessOS) on the standard `install.sh`, worked around with the static tarball above.
+
+---
+
 ## Deployment on doylestonex
 
 ### Nginx reverse proxy config (matches kaizen pattern)

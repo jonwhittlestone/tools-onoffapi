@@ -23,6 +23,7 @@ type Machine struct {
 	ID            string `json:"id"`
 	Name          string `json:"name"`
 	IP            string `json:"ip"`
+	TailscaleIP   string `json:"tailscale_ip,omitempty"` // stable 100.x.y.z address; empty if not enrolled on the tailnet
 	MAC           string `json:"mac"`
 	SSHUser       string `json:"ssh_user,omitempty"`
 	SSHKeyPath    string `json:"ssh_key_path,omitempty"`
@@ -54,13 +55,14 @@ func NewStore() *Store {
 	}
 	// Seed with doylestone02
 	s.Create(Machine{
-		ID:         "doylestone02",
-		Name:       "doylestone02",
-		IP:         "192.168.0.203",
-		MAC:        "58:47:ca:70:62:27",
-		SSHUser:    "jon",
-		SSHKeyPath: "/home/admin/.ssh/id_onoffapi_shutdown_doylestone02",
-		Notes:      "Gaming/media PC. Auto-shuts down at 23:59 via systemd timer.",
+		ID:          "doylestone02",
+		Name:        "doylestone02",
+		IP:          "192.168.0.97", // drifted from the originally documented .203 — confirmed live via `ip addr` on the box itself (2026-07-27)
+		TailscaleIP: "100.111.143.116",
+		MAC:         "58:47:ca:70:62:27",
+		SSHUser:     "jon",
+		SSHKeyPath:  "/home/admin/.ssh/id_onoffapi_shutdown_doylestone02",
+		Notes:       "Gaming/media PC. Auto-shuts down at 23:59 via systemd timer.",
 	})
 	// blackpants: handheld wifi cyberdeck — WoL unreliable over WiFi, shutdown only
 	s.Create(Machine{
@@ -114,13 +116,14 @@ func NewStore() *Store {
 	})
 	// madebyjon: Jon's dev laptop (first Lenovo, T440s). WiFi-only, WoL not viable.
 	s.Create(Machine{
-		ID:         "madebyjon",
-		Name:       "madebyjon",
-		IP:         "192.168.0.218",
-		SSHUser:    "jon",
-		SSHKeyPath: "/home/admin/.ssh/id_onoffapi_madebyjon",
-		Notes:      "Jon's development machine. First Lenovo! T440s.",
-		HideWake:   true,
+		ID:          "madebyjon",
+		Name:        "madebyjon",
+		IP:          "192.168.0.218",
+		TailscaleIP: "100.105.77.123",
+		SSHUser:     "jon",
+		SSHKeyPath:  "/home/admin/.ssh/id_onoffapi_madebyjon",
+		Notes:       "Jon's development machine. First Lenovo! T440s.",
+		HideWake:    true,
 	})
 	return s
 }

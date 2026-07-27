@@ -68,7 +68,7 @@ func (h *MachineHandler) setPassword(w http.ResponseWriter, r *http.Request) {
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // acceptable on a trusted LAN
 		Timeout:         5 * time.Second,
 	}
-	client, err := ssh.Dial("tcp", m.IP+":22", cfg)
+	client, err := ssh.Dial("tcp", effectiveIP(m, h.networkMode.Get())+":22", cfg)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, fmt.Sprintf("SSH dial failed: %v", err))
 		return

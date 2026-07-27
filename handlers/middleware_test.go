@@ -53,6 +53,21 @@ func TestRequireAPIKey_Valid(t *testing.T) {
 	}
 }
 
+func TestRequireAPIKey_NetworkModeRequiresAuth(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := RequireAPIKey("secret", inner)
+
+	req := httptest.NewRequest(http.MethodPost, "/network-mode", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for /network-mode without key, got %d", w.Code)
+	}
+}
+
 func TestRequireAPIKey_HealthSkipsAuth(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

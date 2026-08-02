@@ -95,7 +95,6 @@
 
         const screentimePolls = {};
         const screentimeUsersByMachine = {};
-        const screentimeIsAdminByMachine = {};
         const selectedScreentimeUser = {};
 
         function getSelectedScreentimeUser(machineId) {
@@ -104,38 +103,9 @@
             return users.length ? users[0].id : '';
         }
 
-        function isAdminScreentimeUser(machineId) {
-            const users = screentimeUsersByMachine[machineId] || [];
-            // Single-user machine — admin status comes from the machine's own
-            // is_admin flag (e.g. doylestone440's maker has no sudo there,
-            // unlike joseph-laptop's joseph), not assumed true.
-            if (!users.length) return !!screentimeIsAdminByMachine[machineId];
-            const u = users.find(x => x.id === getSelectedScreentimeUser(machineId));
-            return u ? !!u.is_admin : true;
-        }
-
         function screentimeQS(machineId) {
             const uid = getSelectedScreentimeUser(machineId);
             return uid ? ('?user=' + encodeURIComponent(uid)) : '';
-        }
-
-        // Enables/disables the lock-account checkbox and UNLOCK ACCOUNT button
-        // based on whether the selected screentime user has sudo — non-admin
-        // accounts (e.g. maker) can't have their password swapped to lock
-        // them out, since chpasswd requires sudo they don't have.
-        function updateScreentimeUserUI(machineId) {
-            const admin = isAdminScreentimeUser(machineId);
-            const lockCb = document.getElementById('st-lock-' + machineId);
-            const unlockBtn = document.getElementById('st-unlock-' + machineId);
-            if (lockCb) {
-                lockCb.disabled = !admin;
-                if (!admin) lockCb.checked = false;
-            }
-            toggleRestore(machineId);
-            if (unlockBtn) {
-                unlockBtn.disabled = !admin;
-                unlockBtn.title = admin ? '' : 'Not available — this account has no sudo access';
-            }
         }
 
         function switchScreentimeUser(machineId, userId) {
@@ -146,31 +116,22 @@
                     btn.classList.toggle('active', btn.dataset.user === userId);
                 });
             }
-            updateScreentimeUserUI(machineId);
             startScreentimePoll(machineId);
         }
 
-        function setScreentimeActive(machineId, active, lockAccount = false) {
+        function setScreentimeActive(machineId, active) {
             const display   = document.getElementById('st-display-'  + machineId);
             const startBtn  = document.getElementById('st-start-'    + machineId);
             const stopBtn   = document.getElementById('st-stop-'     + machineId);
-            const unlockBtn = document.getElementById('st-unlock-'   + machineId);
             const durInput  = document.getElementById('st-duration-' + machineId);
-            const lockCb    = document.getElementById('st-lock-'     + machineId);
-            const restInput = document.getElementById('st-restore-'  + machineId);
 
             if (display)   display.style.display = active ? 'flex' : 'none';
             if (startBtn)  startBtn.disabled  = active;
             if (stopBtn)   stopBtn.disabled   = !active;
             if (durInput)  durInput.disabled  = active;
-            if (lockCb)    lockCb.disabled    = active || !isAdminScreentimeUser(machineId);
-            if (restInput) restInput.disabled = active;
 
             const panel = display && display.closest('.screentime-panel');
             if (panel) panel.querySelectorAll('.preset-btn').forEach(b => b.disabled = active);
-            const card = display && display.closest('.machine');
-            const shutdownBtn = card && card.querySelector('[data-cmd="shutdown"]');
-            if (shutdownBtn) shutdownBtn.disabled = active && lockAccount;
         }
 
         function startScreentimePoll(machineId) {
@@ -190,11 +151,9 @@
                     const data = await res.json();
                     if (data.active) {
                         remainingSecs = data.remaining_secs;
-                        const lockEl = document.getElementById('st-lock-indicator-' + machineId);
                         const countEl = document.getElementById('st-countdown-' + machineId);
                         if (countEl) countEl.textContent = fmtSecs(remainingSecs);
-                        if (lockEl) lockEl.style.display = data.lock_account ? 'inline' : 'none';
-                        setScreentimeActive(machineId, true, data.lock_account);
+                        setScreentimeActive(machineId, true);
                     } else {
                         remainingSecs = 0;
                         setScreentimeActive(machineId, false);
@@ -267,12 +226,10 @@
             machines.forEach(m => {
                 pollState(m.id);
                 screentimeUsersByMachine[m.id] = m.screentime_users || [];
-                screentimeIsAdminByMachine[m.id] = !!m.is_admin;
                 if (m.has_screentime) {
                     if (!selectedScreentimeUser[m.id] && screentimeUsersByMachine[m.id].length) {
                         selectedScreentimeUser[m.id] = screentimeUsersByMachine[m.id][0].id;
                     }
-                    updateScreentimeUserUI(m.id);
                     startScreentimePoll(m.id);
                 }
             });
@@ -290,7 +247,6 @@
 
                 <div id="st-display-${id}" class="st-timer-display" style="display:none">
                     <span class="st-countdown" id="st-countdown-${id}">00:00:00</span>
-                    <span class="st-lock-badge" id="st-lock-indicator-${id}" style="display:none">🔒 locked</span>
                     <span class="st-label">remaining</span>
                 </div>
 
@@ -303,14 +259,6 @@
                 </div>
                 <div class="screentime-inputs">
                     <input type="text" id="st-duration-${id}" placeholder="e.g. 1h30m" value="1h">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="st-lock-${id}" onchange="toggleRestore('${id}')" checked>
-                        Lock account
-                    </label>
-                    <span id="st-restore-wrap-${id}">
-                        Restore after:
-                        <input type="text" id="st-restore-${id}" value="10m" class="restore-input">
-                    </span>
                 </div>
                 <div class="screentime-actions">
                     <button id="st-start-${id}" onclick="startScreentime('${id}')">▶ START TIMER</button>
@@ -318,7 +266,6 @@
                 </div>
                 <div class="screentime-actions">
                     <button id="st-unlockscreen-${id}" class="unlock-btn" onclick="unlockScreen('${id}')">🔓 UNLOCK SCREEN</button>
-                    <button id="st-unlock-${id}" class="unlock-btn" onclick="unlockScreentime('${id}')">🔓 UNLOCK ACCOUNT</button>
                 </div>
                 <div class="password-inputs">
                     <input type="password" id="st-newpw-${id}" placeholder="New password">
@@ -332,22 +279,14 @@
             document.getElementById('st-duration-' + machineId).value = duration;
         }
 
-        function toggleRestore(machineId) {
-            const checked = document.getElementById('st-lock-' + machineId).checked;
-            document.getElementById('st-restore-wrap-' + machineId).style.display = checked ? '' : 'none';
-        }
-
         async function startScreentime(machineId) {
             const duration = document.getElementById('st-duration-' + machineId).value.trim();
-            const lockAccount = document.getElementById('st-lock-' + machineId).checked;
-            const restoreAfter = document.getElementById('st-restore-' + machineId).value.trim();
             const statusEl = document.getElementById('st-status-' + machineId);
 
             if (!duration) { statusEl.textContent = 'Enter a duration first'; return; }
             statusEl.textContent = 'Starting…';
 
-            const body = { duration, action: 'lock', lock_account: lockAccount };
-            if (lockAccount && restoreAfter) body.restore_after = restoreAfter;
+            const body = { duration, action: 'lock' };
 
             try {
                 const res = await fetch('./machines/' + machineId + '/screentime' + screentimeQS(machineId), {
@@ -357,15 +296,14 @@
                 });
                 if (res.ok) {
                     const data = await res.json().catch(() => ({}));
-                    const lockMsg = lockAccount ? ` · locks for ${restoreAfter || '10m'}` : '';
-                    statusEl.textContent = `Started: ${duration}${lockMsg}`;
+                    statusEl.textContent = `Started: ${duration}`;
                     // Show countdown immediately using total_secs from response.
                     // The sync() inside startScreentimePoll will confirm and correct.
                     if (data.total_secs) {
                         const countEl = document.getElementById('st-countdown-' + machineId);
                         if (countEl) countEl.textContent = fmtSecs(data.total_secs);
                     }
-                    setScreentimeActive(machineId, true, lockAccount);
+                    setScreentimeActive(machineId, true);
                     startScreentimePoll(machineId);
                 } else {
                     const data = await res.json().catch(() => ({}));
@@ -390,20 +328,6 @@
                 } else {
                     statusEl.textContent = 'Error ' + res.status;
                 }
-            } catch (e) {
-                statusEl.textContent = 'Network error';
-            }
-        }
-
-        async function unlockScreentime(machineId) {
-            const statusEl = document.getElementById('st-status-' + machineId);
-            statusEl.textContent = 'Unlocking…';
-            try {
-                const res = await fetch('./machines/' + machineId + '/screentime/unlock' + screentimeQS(machineId), {
-                    method: 'POST',
-                    headers: { 'X-API-Key': apiKey }
-                });
-                statusEl.textContent = res.ok ? 'Account unlocked' : 'Error ' + res.status;
             } catch (e) {
                 statusEl.textContent = 'Network error';
             }

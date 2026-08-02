@@ -60,18 +60,16 @@ func screentimeStatePath(su models.ScreentimeUser) string {
 // screentimeStatus holds the server-side record of a running timer.
 // Stored when a timer starts; cleared when it stops or expires.
 type screentimeStatus struct {
-	startedAt   time.Time
-	totalSecs   int
-	action      string
-	lockAccount bool
+	startedAt time.Time
+	totalSecs int
+	action    string
 }
 
 // screentimeStatusJSON is used solely for file persistence.
 type screentimeStatusJSON struct {
-	StartedAt   time.Time `json:"started_at"`
-	TotalSecs   int       `json:"total_secs"`
-	Action      string    `json:"action"`
-	LockAccount bool      `json:"lock_account"`
+	StartedAt time.Time `json:"started_at"`
+	TotalSecs int       `json:"total_secs"`
+	Action    string    `json:"action"`
 }
 
 // remoteStateCache holds the last SSH-read result from /tmp/screentime-state on the target machine.
@@ -175,10 +173,9 @@ func (s *screentimeStore) saveToFile() {
 	data := make(map[string]screentimeStatusJSON, len(s.timers))
 	for id, st := range s.timers {
 		data[id] = screentimeStatusJSON{
-			StartedAt:   st.startedAt,
-			TotalSecs:   st.totalSecs,
-			Action:      st.action,
-			LockAccount: st.lockAccount,
+			StartedAt: st.startedAt,
+			TotalSecs: st.totalSecs,
+			Action:    st.action,
 		}
 	}
 	s.mu.RUnlock()
@@ -220,10 +217,9 @@ func (s *screentimeStore) loadFromFile() {
 		remaining := j.TotalSecs - int(now.Sub(j.StartedAt).Seconds())
 		if remaining > 0 {
 			s.timers[id] = screentimeStatus{
-				startedAt:   j.StartedAt,
-				totalSecs:   j.TotalSecs,
-				action:      j.Action,
-				lockAccount: j.LockAccount,
+				startedAt: j.StartedAt,
+				totalSecs: j.TotalSecs,
+				action:    j.Action,
 			}
 			log.Printf("screentime: restored timer for %s (%ds remaining)", id, remaining)
 		}
@@ -231,10 +227,8 @@ func (s *screentimeStore) loadFromFile() {
 }
 
 type screentimeStartRequest struct {
-	Duration     string `json:"duration"`
-	Action       string `json:"action"`
-	LockAccount  *bool  `json:"lock_account"` // nil → default true; explicit false opts out
-	RestoreAfter string `json:"restore_after"`
+	Duration string `json:"duration"`
+	Action   string `json:"action"`
 }
 
 // getScreentime handles GET /machines/{id}/screentime.
@@ -287,7 +281,6 @@ func (h *MachineHandler) getScreentime(w http.ResponseWriter, r *http.Request) {
 					"remaining_secs": adjusted,
 					"remaining":      fmtSecs(adjusted),
 					"action":         "lock",
-					"lock_account":   true,
 				})
 				return
 			}
@@ -323,7 +316,6 @@ func (h *MachineHandler) getScreentime(w http.ResponseWriter, r *http.Request) {
 		"remaining_secs": remainingSecs,
 		"remaining":      fmtSecs(remainingSecs),
 		"action":         st.action,
-		"lock_account":   st.lockAccount,
 	})
 }
 
@@ -368,19 +360,7 @@ func (h *MachineHandler) startScreentime(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Default lock_account to true for admin accounts (unchanged behavior);
-	// non-admin accounts (e.g. maker) have no sudo, so the hard lockout
-	// isn't available to them — default to false, and reject if requested.
-	lockAccount := su.IsAdmin
-	if req.LockAccount != nil {
-		if *req.LockAccount && !su.IsAdmin {
-			writeError(w, http.StatusUnprocessableEntity, fmt.Sprintf("account lockout is not available for %q — no sudo access on this machine", su.ID))
-			return
-		}
-		lockAccount = *req.LockAccount
-	}
-
-	cmd := buildStartCmd(req.Duration, req.Action, lockAccount, req.RestoreAfter)
+	cmd := buildStartCmd(req.Duration, req.Action)
 	startedAt := time.Now()
 	if err := screentimeSSH(su.SSHUser, su.SSHKeyPath, effectiveIP(m, h.networkMode.Get()), cmd); err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("command failed: %v", err))
@@ -388,18 +368,16 @@ func (h *MachineHandler) startScreentime(w http.ResponseWriter, r *http.Request)
 	}
 
 	h.screentimeStore.set(screentimeStoreKey(id, su), screentimeStatus{
-		startedAt:   startedAt,
-		totalSecs:   totalSecs,
-		action:      req.Action,
-		lockAccount: lockAccount,
+		startedAt: startedAt,
+		totalSecs: totalSecs,
+		action:    req.Action,
 	})
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":       "timer started",
-		"duration":     req.Duration,
-		"total_secs":   totalSecs,
-		"action":       req.Action,
-		"lock_account": lockAccount,
+		"status":     "timer started",
+		"duration":   req.Duration,
+		"total_secs": totalSecs,
+		"action":     req.Action,
 	})
 }
 
@@ -428,36 +406,6 @@ func (h *MachineHandler) stopScreentime(w http.ResponseWriter, r *http.Request) 
 
 	h.screentimeStore.clear(screentimeStoreKey(id, su))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "timer stopped"})
-}
-
-// unlockScreentime handles POST /machines/{id}/screentime/unlock
-func (h *MachineHandler) unlockScreentime(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	m, ok := h.store.GetByID(id)
-	if !ok {
-		writeError(w, http.StatusNotFound, "machine not found")
-		return
-	}
-	su, ok := resolveScreentimeUser(m, r.URL.Query().Get("user"))
-	if !ok {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown screentime user %q", r.URL.Query().Get("user")))
-		return
-	}
-	if su.SSHUser == "" || su.SSHKeyPath == "" {
-		writeError(w, http.StatusUnprocessableEntity, "machine has no SSH credentials")
-		return
-	}
-	if !su.IsAdmin {
-		writeError(w, http.StatusUnprocessableEntity, fmt.Sprintf("account lockout is not available for %q — nothing to unlock", su.ID))
-		return
-	}
-
-	if err := screentimeSSH(su.SSHUser, su.SSHKeyPath, effectiveIP(m, h.networkMode.Get()), "python3 ~/screentime-timer.py --unlock"); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("command failed: %v", err))
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]string{"status": "account unlocked"})
 }
 
 // --- helpers ---
@@ -490,17 +438,11 @@ func fmtSecs(s int) string {
 	return fmt.Sprintf("%02d:%02d:%02d", h, m, sec)
 }
 
-func buildStartCmd(duration, action string, lockAccount bool, restoreAfter string) string {
+func buildStartCmd(duration, action string) string {
 	parts := []string{
 		"python3", "~/screentime-timer.py",
 		duration,
 		"--action", action,
-	}
-	if lockAccount {
-		parts = append(parts, "--lock-account")
-	}
-	if restoreAfter != "" {
-		parts = append(parts, "--restore-after", restoreAfter)
 	}
 	return strings.Join(parts, " ")
 }

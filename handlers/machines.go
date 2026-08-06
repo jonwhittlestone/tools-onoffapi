@@ -40,6 +40,9 @@ func (h *MachineHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /machines/{id}/password", h.setPassword)
 	mux.HandleFunc("POST /machines/{id}/unlock-screen", h.unlockScreen)
 	mux.HandleFunc("POST /machines/{id}/lock-screen", h.lockScreen)
+	mux.HandleFunc("GET /machines/{id}/volume", h.getVolume)
+	mux.HandleFunc("POST /machines/{id}/volume", h.setVolume)
+	mux.HandleFunc("POST /machines/{id}/mute", h.setMute)
 	mux.HandleFunc("GET /network-mode", h.getNetworkMode)
 	mux.HandleFunc("POST /network-mode", h.setNetworkMode)
 }

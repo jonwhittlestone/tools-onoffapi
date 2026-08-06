@@ -32,6 +32,7 @@ type Machine struct {
 	HideWake      bool   `json:"hide_wake,omitempty"`
 	HideSuspend   bool   `json:"hide_suspend,omitempty"`
 	HasScreentime bool   `json:"has_screentime,omitempty"`
+	HasVolume     bool   `json:"has_volume,omitempty"` // shows the volume/mute dashboard controls; SSHes as SSHUser, no sudo needed (plain pactl)
 	// IsAdmin says whether SSHUser has sudo on this machine — determines
 	// whether the account-lockout trick (self-chpasswd) is available for the
 	// default screentime profile (used when ScreentimeUsers is empty/unset).
@@ -119,6 +120,7 @@ func NewStore() *Store {
 		HideWake:      true,
 		HideSuspend:   true,
 		HasScreentime: true,
+		HasVolume:     true,
 		IsAdmin:       false, // maker has no sudo on doylestone440 — explicit, not just the zero value
 	})
 	// madebyjon: Jon's dev laptop (first Lenovo, T440s). WiFi-only, WoL not viable.

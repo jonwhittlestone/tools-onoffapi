@@ -221,6 +221,7 @@
                         <span class="status" id="status-${m.id}"></span>
                     </div>
                     ${m.has_screentime ? screentimePanel(m.id, m.screentime_users) : ''}
+                    ${m.has_volume ? volumePanel(m.id) : ''}
                 </div>
             `).join('');
             machines.forEach(m => {
@@ -232,7 +233,86 @@
                     }
                     startScreentimePoll(m.id);
                 }
+                if (m.has_volume) loadVolume(m.id);
             });
+        }
+
+        // --- Volume/mute controls (Part 17) ---
+
+        const mutedByMachine = {};
+
+        function volumePanel(id) {
+            return `
+            <div class="volume-panel">
+                <h3>Volume</h3>
+                <div class="volume-controls">
+                    <button id="vol-mute-${id}" onclick="toggleMute('${id}')">🔊</button>
+                    <input type="range" id="vol-slider-${id}" min="0" max="100" value="50"
+                           oninput="onVolumeSliderInput('${id}', this.value)"
+                           onchange="setVolumeLevel('${id}', this.value)">
+                    <span id="vol-value-${id}">50%</span>
+                </div>
+                <span class="status" id="vol-status-${id}"></span>
+            </div>`;
+        }
+
+        async function loadVolume(machineId) {
+            try {
+                const res = await fetch('./machines/' + machineId + '/volume', {
+                    headers: { 'X-API-Key': apiKey }
+                });
+                if (!res.ok) return;
+                const data = await res.json();
+                onVolumeSliderInput(machineId, data.volume);
+                document.getElementById('vol-slider-' + machineId).value = data.volume;
+                mutedByMachine[machineId] = data.muted;
+                updateMuteIcon(machineId);
+            } catch (_) {}
+        }
+
+        function onVolumeSliderInput(machineId, value) {
+            const valEl = document.getElementById('vol-value-' + machineId);
+            if (valEl) valEl.textContent = value + '%';
+        }
+
+        async function setVolumeLevel(machineId, value) {
+            const statusEl = document.getElementById('vol-status-' + machineId);
+            try {
+                const res = await fetch('./machines/' + machineId + '/volume', {
+                    method: 'POST',
+                    headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ volume: parseInt(value, 10) })
+                });
+                if (statusEl) statusEl.textContent = res.ok ? '' : 'Error ' + res.status;
+            } catch (e) {
+                if (statusEl) statusEl.textContent = 'Network error';
+            }
+        }
+
+        function updateMuteIcon(machineId) {
+            const btn = document.getElementById('vol-mute-' + machineId);
+            if (btn) btn.textContent = mutedByMachine[machineId] ? '🔇' : '🔊';
+        }
+
+        async function toggleMute(machineId) {
+            const newMuted = !mutedByMachine[machineId];
+            const statusEl = document.getElementById('vol-status-' + machineId);
+            try {
+                const res = await fetch('./machines/' + machineId + '/mute', {
+                    method: 'POST',
+                    headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ muted: newMuted })
+                });
+                if (res.ok) {
+                    mutedByMachine[machineId] = newMuted;
+                    updateMuteIcon(machineId);
+                    if (statusEl) statusEl.textContent = '';
+                } else if (statusEl) {
+                    statusEl.textContent = 'Error ' + res.status;
+                }
+            } catch (e) {
+                if (statusEl) statusEl.textContent = 'Network error';
+            }
         }
 
         function screentimePanel(id, users) {

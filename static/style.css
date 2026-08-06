@@ -38,6 +38,13 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .screentime-panel { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--card-border); }
 .screentime-panel h3 { margin: 0 0 0.75rem; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
 
+/* Volume panel (Part 17) */
+.volume-panel { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--card-border); }
+.volume-panel h3 { margin: 0 0 0.75rem; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.volume-controls { display: flex; align-items: center; gap: 0.75rem; }
+.volume-controls input[type="range"] { flex: 1; }
+.volume-controls span { min-width: 3.5em; text-align: right; color: var(--muted); }
+
 /* Live countdown display — shown only when a timer is active */
 .st-timer-display { display: flex; align-items: baseline; gap: 0.6rem; margin-bottom: 1rem; padding: 0.75rem 1rem; background: rgba(0,0,0,0.04); border-radius: 6px; }
 [data-theme="dark"] .st-timer-display { background: rgba(255,255,255,0.06); }
